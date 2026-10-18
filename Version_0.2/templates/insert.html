@@ -1,18 +1,54 @@
 <!DOCTYPE html>
 <html>
 
+<head>
+    <meta name="home" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://www.w3schools.com/w3css/6/w3.css">
+    <style>
+        body, h1, h2, h3, h4, h5, h6 {
+            font-family: Tahoma, "Trebuchet MS", sans-serif;
+            }
+        body {
+            background-color: #343A40;
+        }
+    </style>
+</head>
+
 <body>
-    <h1>Insert Valid File Type</h1>
-    <h2>png, jpeg, m4a, mp3, wav, mp4, avi, mov, mpeg-2</h2>
-    <form action="/insert_submit" method="POST" enctype="multipart/form-data">
-        <div>
-            <label for="user-file">Choose a file:</label>
-            <input type="file" id="user-file" name="user-file" required>
+    <header id="home" class="w3-display-container">
+        <img src="ece-30861/Version_0.1/assets/Black and Blue Background with Wavy Lines - Pawel Czerwinski.png" style="width:100%" alt="Blue Background">
+        
+        <div class="w3-container w3-center">
+            <h1 class="w3-text-white w3-wide">
+            <span class="w3-padding w3-black w3-opacity-min"><b>AI</b></span>
+            <span class="w3-hide-small w3-text-light-grey">Watermarking</span>
+            </h1>
         </div>
-        <button type="submit">Submit</button>
-    </form>
+        
+    </header>
+
+    <div class="w3-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+        <div class="w3-container w3-asphalt"></div>
+        <div class="w3-container w3-asphalt">
+            <div class="w3-panel w3-teal w3-padding-large">
+                <h2>AI Watermarking Tool</h2>
+                <p>This open-source software is intended as a tool to assist with the labeling and identification of Generative AI outputs. </p>
+                <p>Insert Valid File Type: </p>
+                <p>png, jpeg, m4a, mp3, wav, mp4, avi, mov, mpeg-2</p>
+            </div>
+            <div class="w3-panel w3-light-grey w3-padding-large">
+                <form action="/insert_submit" method="POST" enctype="multipart/form-data">
+                    <div>
+                        <label for="user-file">Choose a file:</label>
+                        <input type="file" id="user-file" name="user-file" required>
+                    </div>
+                    <button type="submit" class="w3-button w3-teal">Submit</button>
+                </form>
+            </div>
+        </div>
+        <div class="w3-container w3-asphalt"></div>
+    </div>
 
 </body>
-
 
 </html>
