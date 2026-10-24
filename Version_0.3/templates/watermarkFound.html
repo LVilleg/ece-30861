@@ -1,0 +1,13 @@
+{% extends "detectionMode.html" %}
+
+{% block page_title %}Watermark Found | AI Watermarking{% endblock %}
+
+{% block detection_content %}
+            <div class="w3-panel w3-light-grey w3-padding-large" role="status">
+                <h3>Watermark found</h3>
+                <p>The service's watermark was found in the uploaded file.</p>
+                <p>
+                    <a href="{{ url_for('detection') }}" class="w3-button w3-teal">Check another file</a>
+                </p>
+            </div>
+{% endblock %}

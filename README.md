@@ -20,8 +20,10 @@ Requirements.txt
 Currently, requirements.zip contains the following:
     - templates folder
     - application.py
+    - detection.py
     - main.py
     - requiresment.txt
+    - watermark.py
 
 This was uploaded to AWS Elastic Beanstalk. 
 Current URL: http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/

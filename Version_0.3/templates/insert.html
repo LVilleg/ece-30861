@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Watermark Mode | AI Watermarking</title>
+    <link rel="stylesheet" href="https://www.w3schools.com/w3css/6/w3.css">
+    <style>
+        body, h1, h2, h3, h4, h5, h6 {
+            font-family: Tahoma, "Trebuchet MS", sans-serif;
+            }
+        body {
+            background-color: #343A40;
+        }
+    </style>
+</head>
+
+<body>
+    <header id="home" class="w3-display-container">
+        <img src="ece-30861/Version_0.2/assets/Black and Blue Background with Wavy Lines - Pawel Czerwinski.png" style="width:100%" alt="Blue Background">
+        
+        <div class="w3-container w3-center">
+            <h1 class="w3-text-white w3-wide">
+            <span class="w3-padding w3-black w3-opacity-min"><b>AI</b></span>
+            <span class="w3-hide-small w3-text-light-grey">Watermarking</span>
+            </h1>
+        </div>
+        
+    </header>
+
+    <div class="w3-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+        <div class="w3-container w3-asphalt"></div>
+        <div class="w3-container w3-asphalt">
+            <div class="w3-panel w3-teal w3-padding-large">
+                <h2>AI Watermarking Tool</h2>
+                <p><strong>Watermark mode</strong></p>
+                <p>This open-source software is intended as a tool to assist with the labeling and identification of Generative AI outputs. </p>
+                <p>Insert Valid File Type: </p>
+                <p>png, jpeg, m4a, mp3, wav, mp4, avi, mov, mpeg-2</p>
+                <p>
+                    <a href="{{ url_for('detection') }}" class="w3-button w3-light-grey">Detect watermark</a>
+                </p>
+            </div>
+            <div class="w3-panel w3-light-grey w3-padding-large">
+                <form action="{{ url_for('submitFile') }}" method="POST" enctype="multipart/form-data">
+                    <div>
+                        <label for="user-file">Choose a file to watermark:</label>
+                        <input type="file" id="user-file" name="user-file" required>
+                    </div>
+                    <button type="submit" class="w3-button w3-teal">Add watermark</button>
+                </form>
+            </div>
+        </div>
+        <div class="w3-container w3-asphalt"></div>
+    </div>
+
+</body>
+
+</html>

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+
+<body>
+    <h2>Here is your output {{file_type}} file!</h2>
+    <!--This is the core part but it will be expanded on later-->
+
+    <form action="/download" method="GET">
+        <input type="hidden" name="file_type" value="{{file_type}}">
+        <button type="submit">Download</button>
+    </form>
+    
+
+</body>
+
+
+</html>

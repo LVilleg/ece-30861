@@ -1,0 +1,4 @@
+Flask
+Pillow>=10.0
+numpy>=1.24
+imageio-ffmpeg>=0.6.0
