@@ -1,76 +1,28 @@
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block page_title %}Detection Mode | AI Watermarking{% endblock %}</title>
-    <link rel="stylesheet" href="https://www.w3schools.com/w3css/6/w3.css">
-    <style>
-        body, h1, h2, h3, h4, h5, h6 {
-            font-family: Tahoma, "Trebuchet MS", sans-serif;
-        }
-        body {
-            background-color: #343A40;
-        }
-        .upload-layout {
-            grid-template-columns: 1fr 1fr 1fr;
-        }
-        @media (max-width: 800px) {
-            .upload-layout {
-                grid-template-columns: 1fr;
-            }
-            .layout-spacer {
-                display: none;
-            }
-        }
-    </style>
-</head>
-
-<body>
-    <header id="home" class="w3-display-container w3-padding-32">
-        <div class="w3-container w3-center">
-            <h1 class="w3-text-white w3-wide">
-                <span class="w3-padding w3-black w3-opacity-min"><b>AI</b></span>
-                <span class="w3-hide-small w3-text-light-grey">Watermarking</span>
-            </h1>
+{% extends "base.html" %}
+{% block page_title %}Detection Mode | AI Watermarking{% endblock %}
+{% block content %}
+<section class="panel panel--intro">
+    <h2>AI Watermark Detection</h2>
+    <p class="mode-label">Detection mode</p>
+    <p>Check whether a file contains a watermark added by this tool.</p>
+    <p>Supported file types: png, jpeg, m4a, mp3, wav, mp4, avi, mov, mpeg-2</p>
+    <div class="button-row">
+        <a href="{{ url_for('insert') }}" class="button button--secondary">Back to watermark mode</a>
+        <a href="{{ url_for('tester_mode') }}" class="button button--secondary">Automatic tester</a>
+    </div>
+</section>
+{% if error %}
+<div class="panel panel--error" role="alert"><p>{{ error }}</p></div>
+{% endif %}
+{% block detection_content %}
+<section class="panel">
+    <form action="{{ url_for('detection') }}" method="POST" enctype="multipart/form-data">
+        <div class="field">
+            <label for="user-file">Choose a file to check:</label>
+            <input type="file" id="user-file" name="user-file" required>
         </div>
-    </header>
-
-    <main class="w3-grid upload-layout">
-        <div class="w3-container w3-asphalt layout-spacer" aria-hidden="true"></div>
-        <div class="w3-container w3-asphalt">
-            <div class="w3-panel w3-teal w3-padding-large">
-                <h2>AI Watermark Detection</h2>
-                <p><strong>Detection mode</strong></p>
-                <p>Check whether a file contains a watermark added by this tool.</p>
-                <p>Supported file types:</p>
-                <p>png, jpeg, m4a, mp3, wav, mp4, avi, mov, mpeg-2</p>
-                <p>
-                    <a href="{{ url_for('insert') }}" class="w3-button w3-light-grey">Back to watermark mode</a>
-                </p>
-            </div>
-
-            {% if error %}
-            <div class="w3-panel w3-pale-red w3-padding-large" role="alert">
-                <p>{{ error }}</p>
-            </div>
-            {% endif %}
-
-            {% block detection_content %}
-            <div class="w3-panel w3-light-grey w3-padding-large">
-                <form action="{{ url_for('detection') }}" method="POST" enctype="multipart/form-data">
-                    <div>
-                        <label for="user-file">Choose a file to check:</label>
-                        <input type="file" id="user-file" name="user-file" required>
-                    </div>
-                    <button type="submit" class="w3-button w3-teal">Detect watermark</button>
-                </form>
-            </div>
-            {% endblock %}
-        </div>
-        <div class="w3-container w3-asphalt layout-spacer" aria-hidden="true"></div>
-    </main>
-</body>
-
-</html>
+        <button type="submit" class="button">Detect watermark</button>
+    </form>
+</section>
+{% endblock %}
+{% endblock %}

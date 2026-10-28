@@ -1,59 +1,16 @@
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Unsupported File Type | AI Watermarking</title>
-    <link rel="stylesheet" href="https://www.w3schools.com/w3css/6/w3.css">
-    <style>
-        body, h1, h2, h3, h4, h5, h6 {
-            font-family: Tahoma, "Trebuchet MS", sans-serif;
-        }
-        body {
-            background-color: #343A40;
-        }
-        .upload-layout {
-            grid-template-columns: 1fr 1fr 1fr;
-        }
-        @media (max-width: 800px) {
-            .upload-layout {
-                grid-template-columns: 1fr;
-            }
-            .layout-spacer {
-                display: none;
-            }
-        }
-    </style>
-</head>
-
-<body>
-    <header id="home" class="w3-display-container w3-padding-32">
-        <div class="w3-container w3-center">
-            <h1 class="w3-text-white w3-wide">
-                <span class="w3-padding w3-black w3-opacity-min"><b>AI</b></span>
-                <span class="w3-hide-small w3-text-light-grey">Watermarking</span>
-            </h1>
-        </div>
-    </header>
-
-    <main class="w3-grid upload-layout">
-        <div class="w3-container w3-asphalt layout-spacer" aria-hidden="true"></div>
-        <div class="w3-container w3-asphalt">
-            <div class="w3-panel w3-teal w3-padding-large">
-                <h2>Unsupported File Type</h2>
-                <p>The selected file type cannot be watermarked.</p>
-            </div>
-            <div class="w3-panel w3-light-grey w3-padding-large">
-                <p>Please upload one file in a supported format:</p>
-                <p>png, jpeg, m4a, mp3, wav, mp4, avi, mov, mpeg-2</p>
-                <p>
-                    <a href="{{ url_for('insert') }}" class="w3-button w3-teal">Choose another file</a>
-                </p>
-            </div>
-        </div>
-        <div class="w3-container w3-asphalt layout-spacer" aria-hidden="true"></div>
-    </main>
-</body>
-
-</html>
+{% extends "base.html" %}
+{% block page_title %}Unsupported File Type | AI Watermarking{% endblock %}
+{% block content %}
+<section class="panel panel--intro">
+    <h2>Unsupported File Type</h2>
+    <p>The selected file type cannot be watermarked.</p>
+</section>
+<section class="panel panel--error" role="alert">
+    <h3>Choose a supported file</h3>
+    <p>Please upload one file in a supported format:</p>
+    <p>png, jpeg, m4a, mp3, wav, mp4, avi, mov, mpeg-2</p>
+    <div class="button-row">
+        <a href="{{ url_for('insert') }}" class="button">Choose another file</a>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block page_title %}AI Watermarking{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
+    <header class="site-header">
+        <a href="{{ url_for('insert') }}" class="brand" aria-label="AI Watermarking home">
+            <span class="brand-mark">AI</span>
+            <span>Watermarking</span>
+        </a>
+        {% set endpoint = request.endpoint or '' %}
+        <nav class="mode-nav" aria-label="Service modes">
+            <a href="{{ url_for('insert') }}" class="button button--nav" {% if endpoint in ['insert', 'submitFile', 'download', 'start'] %}aria-current="page"{% endif %}>Watermark mode</a>
+            <a href="{{ url_for('detection') }}" class="button button--nav" {% if endpoint in ['detection', 'watermark_found', 'watermark_not_found'] %}aria-current="page"{% endif %}>Detection mode</a>
+            <a href="{{ url_for('tester_mode') }}" class="button button--nav" {% if endpoint in ['tester_mode', 'tester_run', 'tester_report'] %}aria-current="page"{% endif %}>Automatic tester</a>
+        </nav>
+    </header>
+    <main id="main-content" class="page-shell">
+        {% block content %}{% endblock %}
+    </main>
+    <footer class="site-footer">Background image: Pawel Czerwinski</footer>
+</body>
+</html>

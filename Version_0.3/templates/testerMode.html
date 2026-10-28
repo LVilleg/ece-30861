@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block page_title %}Automatic Tester | AI Watermarking{% endblock %}
+
+{% block head_extra %}
+    {% if run and run.status == 'running' %}
+    <meta http-equiv="refresh" content="2">
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <section class="panel panel--intro">
+        <p class="mode-label">Tester mode</p>
+        <h2>Automatic Tester</h2>
+        <p>Check that watermarking, detection, and the website workflow work together.</p>
+        <p>The tester generates its own sample files. It does not use your uploaded files or change your current download.</p>
+        <div class="button-row">
+            <a href="{{ url_for('insert') }}" class="button button--secondary">Back to watermark mode</a>
+            <a href="{{ url_for('detection') }}" class="button button--secondary">Detection mode</a>
+        </div>
+    </section>
+
+    {% if error %}
+    <section class="panel panel--error" role="alert">
+        <p>{{ error }}</p>
+    </section>
+    {% endif %}
+
+    {% if run %}
+    <section class="panel {% if run.status == 'passed' %}panel--success{% elif run.status in ['failed', 'error'] %}panel--error{% endif %}" role="status">
+        {% if run.status == 'running' %}
+        <h3>Tests are running</h3>
+        <p>This page refreshes automatically while the tester runs.</p>
+        {% elif run.status == 'passed' %}
+        <h3>All checks passed</h3>
+        {% elif run.status == 'failed' %}
+        <h3>Some checks failed</h3>
+        {% else %}
+        <h3>The tester could not finish</h3>
+        {% endif %}
+        <p>Mode: {{ run.mode|capitalize }}</p>
+        {% if run.message %}<p>{{ run.message }}</p>{% endif %}
+
+        {% if run.report %}
+        <table class="results-table">
+            <tbody>
+                <tr><th scope="row">Test groups run</th><td>{{ run.report.tests_run }}</td></tr>
+                <tr><th scope="row">Failures</th><td>{{ run.report.failures }}</td></tr>
+                <tr><th scope="row">Errors</th><td>{{ run.report.errors }}</td></tr>
+                <tr><th scope="row">Skipped</th><td>{{ run.report.skipped }}</td></tr>
+                <tr><th scope="row">Elapsed time</th><td>{{ run.report.elapsed_seconds }} seconds</td></tr>
+            </tbody>
+        </table>
+        <p class="help-text">Counts describe test groups; each group may check several formats or cases.</p>
+        {% endif %}
+
+        {% if run.status != 'running' %}
+        <div class="button-row">
+            <a href="{{ url_for('tester_report', run_id=run.id) }}" class="button">Download JSON report</a>
+        </div>
+        {% endif %}
+    </section>
+    {% endif %}
+
+    <section class="panel">
+        <form action="{{ url_for('tester_run') }}" method="POST">
+            <div class="field">
+                <label for="tester-mode">Choose checks:</label>
+                <select id="tester-mode" name="mode" {% if run and run.status == 'running' %}disabled{% endif %}>
+                    <option value="full" {% if not run or run.mode == 'full' %}selected{% endif %}>Full: images, audio, video, and website checks</option>
+                    <option value="quick" {% if run and run.mode == 'quick' %}selected{% endif %}>Quick: images and website checks</option>
+                </select>
+            </div>
+            <button type="submit" class="button" {% if run and run.status == 'running' %}disabled{% endif %}>
+                {% if run and run.status == 'running' %}Tester running{% elif run %}Run tester again{% else %}Run automatic tester{% endif %}
+            </button>
+        </form>
+        <p class="help-text">Full mode checks every supported format. Quick mode skips audio and video processing.</p>
+        <p class="help-text">The checks use small sample files; they do not perform a 500 MiB upload test.</p>
+    </section>
+
+    {% if run and run.status != 'running' %}
+        {% if run.report and run.report.failure_details %}
+    <details class="panel">
+        <summary>Failure details</summary>
+            {% for failure in run.report.failure_details %}
+        <h4>{{ failure.test }}</h4>
+        <pre class="tester-output">{{ failure.traceback }}</pre>
+            {% endfor %}
+    </details>
+        {% endif %}
+        {% if run.output %}
+    <details class="panel">
+        <summary>Test output</summary>
+        <pre class="tester-output">{{ run.output }}</pre>
+    </details>
+        {% endif %}
+    {% endif %}
+{% endblock %}

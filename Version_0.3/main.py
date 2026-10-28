@@ -4,13 +4,37 @@ from io import BytesIO
 from pathlib import Path
 
 from detection import detect_watermark_bytes
+from tester_runner import get_tester_run, start_tester_run
 from watermark import SUPPORTED_EXTENSIONS, WatermarkError, watermark_bytes
 
-app = flask.Flask(__name__)
+app = flask.Flask(__name__, static_folder="assets", static_url_path="/assets")
+# Accept a full 500 MiB file plus 1 MiB for multipart form data. Keep the
+# request limit in sync with the Elastic Beanstalk nginx configuration.
+app.config["MAX_FILE_SIZE"] = 500 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = app.config["MAX_FILE_SIZE"] + 1024 * 1024
 
 # The application currently holds one processed upload at a time.
 temp_file = None
 original_name = None
+
+
+@app.errorhandler(413)
+def upload_too_large(_error):
+    limit_mib = app.config["MAX_FILE_SIZE"] / (1024 * 1024)
+    return (
+        f"Upload too large. The maximum file size is {limit_mib:g} MiB. "
+        "Choose a smaller file and try again.",
+        413,
+        {"Content-Type": "text/plain; charset=utf-8"},
+    )
+
+
+def _read_uploaded_file(upload):
+    limit = app.config["MAX_FILE_SIZE"]
+    data = upload.read(limit + 1)
+    if len(data) > limit:
+        flask.abort(413)
+    return data
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -42,7 +66,7 @@ def detection():
         ), 400
 
     try:
-        detected = detect_watermark_bytes(file.read(), file.filename)
+        detected = detect_watermark_bytes(_read_uploaded_file(file), file.filename)
     except WatermarkError as exc:
         app.logger.warning("Watermark detection failed: %s", exc)
         return flask.render_template(
@@ -64,6 +88,50 @@ def watermark_not_found():
     return flask.render_template("watermarkNotFound.html")
 
 
+@app.route("/tester", methods=["GET"])
+def tester_mode():
+    run = None
+    run_id = flask.request.args.get("run")
+    if run_id:
+        try:
+            run = get_tester_run(run_id)
+        except (ValueError, FileNotFoundError):
+            flask.abort(404)
+    response = flask.make_response(flask.render_template("testerMode.html", run=run))
+    response.cache_control.no_store = True
+    return response
+
+
+@app.route("/tester/run", methods=["POST"])
+def tester_run():
+    mode = flask.request.form.get("mode", "full")
+    if mode not in {"full", "quick"}:
+        return flask.render_template(
+            "testerMode.html", run=None, error="Choose full or quick tester mode."
+        ), 400
+    try:
+        run_id = start_tester_run(mode)
+    except (OSError, RuntimeError):
+        app.logger.exception("Unable to start the automatic tester")
+        return flask.render_template(
+            "testerMode.html", run=None,
+            error="The tester could not start. Try again shortly and check the server logs if it continues.",
+        ), 503
+    return flask.redirect(flask.url_for("tester_mode", run=run_id), code=303)
+
+
+@app.route("/tester/report/<run_id>", methods=["GET"])
+def tester_report(run_id):
+    try:
+        run = get_tester_run(run_id)
+    except (ValueError, FileNotFoundError):
+        flask.abort(404)
+    response = flask.jsonify(run)
+    response.headers["Content-Disposition"] = f'attachment; filename="tester-{run_id}.json"'
+    response.cache_control.no_store = True
+    return response
+
+
 @app.route("/insert_submit", methods=["POST"])
 def submitFile():
     global temp_file, original_name
@@ -79,7 +147,7 @@ def submitFile():
         return flask.render_template("unsupportedFile.html"), 400
 
     try:
-        marked = watermark_bytes(file.read(), file.filename)
+        marked = watermark_bytes(_read_uploaded_file(file), file.filename)
     except WatermarkError as exc:
         return str(exc), 400, {"Content-Type": "text/plain; charset=utf-8"}
 
