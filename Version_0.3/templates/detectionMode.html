@@ -5,10 +5,11 @@
     <h2>AI Watermark Detection</h2>
     <p class="mode-label">Detection mode</p>
     <p>Check whether a file contains a watermark added by this tool.</p>
-    <p>Supported file types: png, jpeg, m4a, mp3, wav, mp4, avi, mov, mpeg-2</p>
+    <p>Supported file types are listed below:</p>
     <div class="button-row">
-        <a href="{{ url_for('insert') }}" class="button button--secondary">Back to watermark mode</a>
-        <a href="{{ url_for('tester_mode') }}" class="button button--secondary">Automatic tester</a>
+        <a><span class="brand-mark-light">Image - png, jpeg</span></a>
+        <a><span class="brand-mark-light">Audio - m4a, mp3, wav</span></a>
+        <a><span class="brand-mark-light">Video - mp4, avi, mov, mpeg-2</span></a>
     </div>
 </section>
 {% if error %}
