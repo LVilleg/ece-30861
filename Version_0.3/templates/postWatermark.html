@@ -13,10 +13,10 @@
         <button type="submit" class="button">Download</button>
     </form>
     {% if is_image %}
-    <img class="watermark-preview" src="{{ url_for('preview') }}" alt="Watermarked image preview">
+    <img class="watermark-preview" src="{{ url_for('preview', id=preview_id) }}" alt="Watermarked image preview">
     {% elif is_audio %}
     <audio class="watermark-preview" controls preload="metadata" aria-label="Watermarked audio preview"
-           src="{{ url_for('preview') }}">
+           src="{{ url_for('preview', id=preview_id) }}">
         Your browser does not support audio playback. Use Download to save the watermarked file.
     </audio>
     {% endif %}
