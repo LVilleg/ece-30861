@@ -162,3 +162,9 @@ summary { cursor: pointer; font-weight: 700; }
     .button-row .button { flex: 1 1 150px; }
     input[type="file"] { font-size: 0.9rem; }
 }
+.watermark-preview {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin-top: 1.5rem;
+}
