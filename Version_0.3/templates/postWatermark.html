@@ -12,6 +12,14 @@
         <input type="hidden" name="file_type" value="{{ file_type }}">
         <button type="submit" class="button">Download</button>
     </form>
+    {% if is_image %}
+    <img class="watermark-preview" src="{{ url_for('preview', id=preview_id) }}" alt="Watermarked image preview">
+    {% elif is_audio %}
+    <audio class="watermark-preview" controls preload="metadata" aria-label="Watermarked audio preview"
+           src="{{ url_for('preview', id=preview_id) }}">
+        Your browser does not support audio playback. Use Download to save the watermarked file.
+    </audio>
+    {% endif %}
     <div class="button-row">
         <a href="{{ url_for('insert') }}" class="button button--tertiary">Watermark another file</a>
         <a href="{{ url_for('detection') }}" class="button button--tertiary">Detect watermark</a>

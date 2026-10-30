@@ -2,6 +2,7 @@ import flask
 from flask import send_file
 from io import BytesIO
 from pathlib import Path
+from uuid import uuid4
 
 from detection import detect_watermark_bytes
 from tester_runner import get_tester_run, start_tester_run
@@ -16,6 +17,14 @@ app.config["MAX_CONTENT_LENGTH"] = app.config["MAX_FILE_SIZE"] + 1024 * 1024
 # The application currently holds one processed upload at a time.
 temp_file = None
 original_name = None
+preview_id = None
+
+
+@app.after_request
+def prevent_stale_upload_pages(response):
+    if flask.request.endpoint in {"insert", "submitFile", "preview", "download"}:
+        response.cache_control.no_store = True
+    return response
 
 
 @app.errorhandler(413)
@@ -134,10 +143,11 @@ def tester_report(run_id):
 
 @app.route("/insert_submit", methods=["POST"])
 def submitFile():
-    global temp_file, original_name
+    global temp_file, original_name, preview_id
     # A failed new upload must not leave an earlier download available.
     temp_file = None
     original_name = None
+    preview_id = None
     files = flask.request.files.getlist("user-file")
     if len(files) != 1 or not files[0].filename:
         return "Please upload exactly one file.", 400
@@ -149,11 +159,37 @@ def submitFile():
     try:
         marked = watermark_bytes(_read_uploaded_file(file), file.filename)
     except WatermarkError as exc:
-        return str(exc), 400, {"Content-Type": "text/plain; charset=utf-8"}
+        return flask.render_template("insert.html", error=str(exc)), 400
 
     temp_file = marked
     original_name = file.filename
-    return flask.render_template("postWatermark.html", file_type=Path(file.filename).suffix)
+    preview_id = uuid4().hex
+    extension = Path(file.filename).suffix.lower()
+    return flask.render_template(
+        "postWatermark.html", file_type=extension,
+        is_image=extension in {".png", ".jpg", ".jpeg"},
+        is_audio=extension in {".m4a", ".mp3", ".wav"},
+        preview_id=preview_id,
+    )
+
+
+@app.route("/preview", methods=["GET"])
+def preview():
+    # Serve processed media inline without caching an earlier upload.
+    mime_types = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".m4a": "audio/mp4", ".mp3": "audio/mpeg", ".wav": "audio/wav",
+    }
+    extension = Path(original_name or "").suffix.lower()
+    if (temp_file is None or extension not in mime_types
+            or flask.request.args.get("id") != preview_id):
+        flask.abort(404)
+    response = send_file(
+        BytesIO(temp_file), as_attachment=False, download_name=original_name,
+        mimetype=mime_types[extension],
+    )
+    response.cache_control.no_store = True
+    return response
 
 
 @app.route("/download", methods=["GET"])
