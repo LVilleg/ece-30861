@@ -12,6 +12,9 @@
         <input type="hidden" name="file_type" value="{{ file_type }}">
         <button type="submit" class="button">Download</button>
     </form>
+    {% if is_image %}
+        <img class="watermark-preview" src="{{ url_for('preview') }}" alt="Watermarked file preview">
+    {% endif %}
     <div class="button-row">
         <a href="{{ url_for('insert') }}" class="button button--tertiary">Watermark another file</a>
         <a href="{{ url_for('detection') }}" class="button button--tertiary">Detect watermark</a>
