@@ -1,0 +1,12 @@
+{
+  "mode": "full",
+  "completed_at_utc": "2026-10-30T19:03:28.084601+00:00",
+  "project_directory": "/home/shay/a/mccartnl/ece-30861/Version_0.3",
+  "successful": true,
+  "tests_run": 19,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "elapsed_seconds": 4.183,
+  "failure_details": []
+}
