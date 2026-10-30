@@ -2,14 +2,10 @@ import flask
 from flask import send_file
 from io import BytesIO
 from pathlib import Path
-import subprocess
-import tempfile
-
-import imageio_ffmpeg
 
 from detection import detect_watermark_bytes
 from tester_runner import get_tester_run, start_tester_run
-from watermark import SUPPORTED_EXTENSIONS, VIDEO_EXTENSIONS, WatermarkError, watermark_bytes
+from watermark import SUPPORTED_EXTENSIONS, WatermarkError, watermark_bytes
 
 app = flask.Flask(__name__, static_folder="assets", static_url_path="/assets")
 # Accept a full 500 MiB file plus 1 MiB for multipart form data. Keep the
@@ -20,27 +16,6 @@ app.config["MAX_CONTENT_LENGTH"] = app.config["MAX_FILE_SIZE"] + 1024 * 1024
 # The application currently holds one processed upload at a time.
 temp_file = None
 original_name = None
-video_preview = None
-
-
-def _video_preview_bytes(data, extension):
-    """Convert marked video to H.264/AAC MP4 for browser playback."""
-    with tempfile.TemporaryDirectory(prefix="video-preview-") as directory:
-        source = Path(directory) / ("source" + extension)
-        target = Path(directory) / "preview.mp4"
-        source.write_bytes(data)
-        subprocess.run(
-            [imageio_ffmpeg.get_ffmpeg_exe(), "-nostdin", "-hide_banner",
-             "-loglevel", "error", "-y", "-i", str(source),
-             "-map", "0:v:0", "-map", "0:a:0?",
-             "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
-             "-c:v", "libx264", "-pix_fmt", "yuv420p",
-             "-preset", "fast", "-crf", "20", "-c:a", "aac",
-             "-movflags", "+faststart", str(target)],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE, check=True, timeout=180,
-        )
-        return target.read_bytes()
 
 
 @app.errorhandler(413)
@@ -159,11 +134,10 @@ def tester_report(run_id):
 
 @app.route("/insert_submit", methods=["POST"])
 def submitFile():
-    global temp_file, original_name, video_preview
+    global temp_file, original_name
     # A failed new upload must not leave an earlier download available.
     temp_file = None
     original_name = None
-    video_preview = None
     files = flask.request.files.getlist("user-file")
     if len(files) != 1 or not files[0].filename:
         return "Please upload exactly one file.", 400
@@ -184,36 +158,22 @@ def submitFile():
         "postWatermark.html", file_type=extension,
         is_image=extension in {".png", ".jpg", ".jpeg"},
         is_audio=extension in {".m4a", ".mp3", ".wav"},
-        is_video=extension in VIDEO_EXTENSIONS,
     )
 
 
 @app.route("/preview", methods=["GET"])
 def preview():
-    global video_preview
     # Serve processed media inline without caching an earlier upload.
     mime_types = {
         ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
         ".m4a": "audio/mp4", ".mp3": "audio/mpeg", ".wav": "audio/wav",
     }
     extension = Path(original_name or "").suffix.lower()
-    if temp_file is None or extension not in (mime_types.keys() | VIDEO_EXTENSIONS):
+    if temp_file is None or extension not in mime_types:
         flask.abort(404)
-        
-    data = temp_file
-    preview_name = original_name
-    if extension in VIDEO_EXTENSIONS:
-        if video_preview is None:
-            try:
-                video_preview = _video_preview_bytes(temp_file, extension)
-            except (OSError, RuntimeError, subprocess.SubprocessError):
-                app.logger.exception("Unable to prepare video preview")
-                return "Video preview unavailable. Use Download to save the watermarked file.", 503
-        data = video_preview
-        preview_name = "preview.mp4"
     response = send_file(
-        BytesIO(data), as_attachment=False, download_name=preview_name,
-        mimetype="video/mp4" if extension in VIDEO_EXTENSIONS else mime_types[extension],
+        BytesIO(temp_file), as_attachment=False, download_name=original_name,
+        mimetype=mime_types[extension],
     )
     response.cache_control.no_store = True
     return response
