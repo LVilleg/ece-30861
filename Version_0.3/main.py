@@ -22,7 +22,7 @@ preview_id = None
 
 @app.after_request
 def prevent_stale_upload_pages(response):
-    if flask.request.endpoint in {"insert", "submitFile", "preview", "download"}:
+    if flask.request.endpoint in {"system", "submitFile", "preview", "download"}:
         response.cache_control.no_store = True
     return response
 
@@ -48,12 +48,12 @@ def _read_uploaded_file(upload):
 
 @app.route("/", methods=["GET", "POST"])
 def start():
-    return flask.redirect("/insert")
+    return flask.redirect("/system")
 
 
-@app.route("/insert", methods=["GET"])
-def insert():
-    return flask.render_template("insert.html")
+@app.route("/system", methods=["GET"])
+def system():
+    return flask.render_template("system.html")
 
 
 @app.route("/detection", methods=["GET", "POST"])
@@ -141,7 +141,7 @@ def tester_report(run_id):
     return response
 
 
-@app.route("/insert_submit", methods=["POST"])
+@app.route("/system_submit", methods=["POST"])
 def submitFile():
     global temp_file, original_name, preview_id
     # A failed new upload must not leave an earlier download available.
@@ -159,7 +159,7 @@ def submitFile():
     try:
         marked = watermark_bytes(_read_uploaded_file(file), file.filename)
     except WatermarkError as exc:
-        return flask.render_template("insert.html", error=str(exc)), 400
+        return flask.render_template("system.html", error=str(exc)), 400
 
     temp_file = marked
     original_name = file.filename

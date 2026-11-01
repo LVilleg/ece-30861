@@ -123,19 +123,19 @@ class WebTests(unittest.TestCase):
     def test_navigation_and_result_links(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], "/insert")
-        self.assertIn(b'href="/detection"', self.client.get("/insert").data)
-        self.assertIn(b'href="/insert"', self.client.get("/detection").data)
+        self.assertEqual(response.headers["Location"], "/system")
+        self.assertIn(b'href="/detection"', self.client.get("/system").data)
+        self.assertIn(b'href="/system"', self.client.get("/detection").data)
         for route in ["/detection/found", "/detection/not-found"]:
             response = self.client.get(route)
             self.assertEqual(response.status_code, 200)
-            self.assertIn(b'href="/insert"', response.data)
+            self.assertIn(b'href="/system"', response.data)
             self.assertIn(b'href="/detection"', response.data)
 
     def test_watermark_download_and_detection_results(self):
         original = sample_image()
         self.assertEqual(self.client.get("/download").status_code, 400)
-        response = self.upload("/insert_submit", original, "sample.PNG")
+        response = self.upload("/system_submit", original, "sample.PNG")
         self.assertEqual(response.status_code, 200)
         download = self.client.get("/download")
         self.assertEqual(download.status_code, 200)
@@ -153,7 +153,7 @@ class WebTests(unittest.TestCase):
                 self.assertEqual(self.client.get("/download").data, download.data)
 
     def test_invalid_uploads_and_download_state(self):
-        for route in ["/insert_submit", "/detection"]:
+        for route in ["/system_submit", "/detection"]:
             with self.subTest(route=route):
                 self.assertEqual(self.client.post(route).status_code, 400)
                 multiple = {"user-file": [(BytesIO(sample_image()), "a.png"), (BytesIO(sample_image()), "b.png")]}
@@ -161,13 +161,13 @@ class WebTests(unittest.TestCase):
                 self.assertEqual(self.upload(route, sample_image(), "").status_code, 400)
                 for name, data in [("notes.txt", b"text"), ("empty.png", b""), ("broken.png", b"bad image")]:
                     self.assertEqual(self.upload(route, data, name).status_code, 400)
-        self.assertEqual(self.upload("/insert_submit", sample_image()).status_code, 200)
+        self.assertEqual(self.upload("/system_submit", sample_image()).status_code, 200)
         saved = self.client.get("/download").data
         response = self.upload("/detection", b"bad image")
         self.assertEqual(response.status_code, 400)
         self.assertNotIn("Location", response.headers)
         self.assertEqual(self.client.get("/download").data, saved)
-        response = self.upload("/insert_submit", b"text", "notes.txt")
+        response = self.upload("/system_submit", b"text", "notes.txt")
         self.assertIn(b"Unsupported File Type", response.data)
         self.assertEqual(self.client.get("/download").status_code, 400)
 
@@ -178,7 +178,7 @@ class WebTests(unittest.TestCase):
         web.app.config["MAX_FILE_SIZE"] = cap
         web.app.config["MAX_CONTENT_LENGTH"] = cap + 1024 * 1024
         for route, name, returned, accepted in [
-            ("/insert_submit", "watermark_bytes", b"marked", 200),
+            ("/system_submit", "watermark_bytes", b"marked", 200),
             ("/detection", "detect_watermark_bytes", True, 303),
         ]:
             for size in [cap - 1, cap, cap + 1]:
@@ -194,7 +194,7 @@ class WebTests(unittest.TestCase):
 
     def test_oversized_request_headers_return_413(self):
         limit = web.app.config["MAX_CONTENT_LENGTH"]
-        for route in ["/insert_submit", "/detection"]:
+        for route in ["/system_submit", "/detection"]:
             with self.subTest(route=route):
                 response = self.client.post(
                     route, input_stream=BytesIO(b""),
@@ -206,7 +206,7 @@ class WebTests(unittest.TestCase):
 
 
     def test_tester_navigation_and_start(self):
-        self.assertIn(b'href="/tester"', self.client.get("/insert").data)
+        self.assertIn(b'href="/tester"', self.client.get("/system").data)
         self.assertIn(b'href="/tester"', self.client.get("/detection").data)
         page = self.client.get("/tester")
         self.assertEqual(page.status_code, 200)
@@ -237,7 +237,7 @@ class WebTests(unittest.TestCase):
                     response = self.client.get("/tester?run=" + run_id)
                     self.assertEqual(response.status_code, 200)
                     self.assertNotIn(b"<script>untrusted test output</script>", response.data)
-                    self.assertIn(b'href="/insert"', response.data)
+                    self.assertIn(b'href="/system"', response.data)
                     self.assertIn(b'href="/detection"', response.data)
                     self.assertEqual(b'http-equiv="refresh"' in response.data, status == "running")
                     report = self.client.get("/tester/report/" + run_id)
