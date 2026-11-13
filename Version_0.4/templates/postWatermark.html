@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block page_title %}Watermark Added | AI Watermarking{% endblock %}
+{% block content %}
+<section class="panel panel--intro">
+    <h2>Watermark Successfully Added</h2>
+    <p>Your {{ file_type }} file is ready to download.</p>
+</section>
+<section class="panel" role="status">
+    <h3>Your file is ready</h3>
+    <p>Download the watermarked copy below.</p>
+    <form action="{{ url_for('download') }}" method="GET">
+        <input type="hidden" name="file_type" value="{{ file_type }}">
+        <button type="submit" class="button">Download</button>
+    </form>
+    <div class="button-row">
+        <a href="{{ url_for('insert') }}" class="button button--tertiary">Watermark another file</a>
+        <a href="{{ url_for('detection') }}" class="button button--tertiary">Detect watermark</a>
+    </div>
+</section>
+{% endblock %}

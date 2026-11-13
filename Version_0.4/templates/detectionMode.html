@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block page_title %}Detection Mode | AI Watermarking{% endblock %}
+{% block content %}
+<section class="panel panel--intro">
+    <h2>AI Watermark Detection</h2>
+    <p class="mode-label">Detection mode</p>
+    <p>Check whether a file contains a watermark added by this tool.</p>
+    <p>Supported file types are listed below:</p>
+    <div class="button-row">
+        <a><span class="brand-mark-light">Image - png, jpeg</span></a>
+        <a><span class="brand-mark-light">Audio - m4a, mp3, wav</span></a>
+        <a><span class="brand-mark-light">Video - mp4, avi, mov, mpeg-2</span></a>
+    </div>
+</section>
+{% if error %}
+<div class="panel panel--error" role="alert"><p>{{ error }}</p></div>
+{% endif %}
+{% block detection_content %}
+<section class="panel">
+    <form action="{{ url_for('detection') }}" method="POST" enctype="multipart/form-data">
+        <div class="field">
+            <label for="user-file">Choose a file to check:</label>
+            <input type="file" id="user-file" name="user-file" required>
+        </div>
+        <button type="submit" class="button">Detect watermark</button>
+    </form>
+</section>
+{% endblock %}
+{% endblock %}

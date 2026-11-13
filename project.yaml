@@ -1,0 +1,345 @@
+openapi: 3.1.0
+
+info:
+  title: AI Media Watermarking API
+  version: 0.2.0
+  description: |
+    Embeds invisible watermarks into AI-generated images, audio, and video,
+    and detects those watermarks later.
+
+    Expected behavior (useful as test cases):
+    - A file uploaded to /watermark-jobs and downloaded from its /result
+      endpoint MUST be reported as `detected: true` by /detect.
+    - On this branch, /detect returns the lowercase hex encoding of the
+      14-byte payload constructed from the supplied ai_status and ai_tools.
+    - This branch uses a custom survey payload, not arbitrary input text.
+      Audio and video remain planned; the current backend supports images only.
+    - A file that was never watermarked SHOULD return `detected: false`.
+    - Unsupported file types MUST return 415; files over the size limit MUST return 413.
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+tags:
+  - name: Watermarking
+    description: Embed watermarks into media
+  - name: Detection
+    description: Check media for watermarks
+  - name: System
+    description: Service status
+
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Check that the service is running
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /watermark-jobs:
+    post:
+      tags: [Watermarking]
+      summary: Upload a media file to be watermarked
+      description: |
+        Starts a watermarking job. Processing happens in the background
+        because video and long audio can take a while. Poll the returned
+        job until its status is `completed`, then download the result.
+      operationId: createWatermarkJob
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/WatermarkRequest'
+            encoding:
+              ai_tools:
+                style: form
+                explode: true
+      responses:
+        '202':
+          description: Job accepted and queued
+          headers:
+            Location:
+              description: URL of the new job
+              schema:
+                type: string
+                example: /watermark-jobs/3f2a9c1e-7b4d-4e8a-9f10-2c5d6e7f8a9b
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+
+  /watermark-jobs/{jobId}:
+    get:
+      tags: [Watermarking]
+      summary: Get the status of a watermarking job
+      operationId: getWatermarkJob
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Current job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /watermark-jobs/{jobId}/result:
+    get:
+      tags: [Watermarking]
+      summary: Download the watermarked file
+      operationId: getWatermarkJobResult
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: The watermarked file, in the same format as the upload
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+            audio/wav:
+              schema: { type: string, format: binary }
+            audio/mpeg:
+              schema: { type: string, format: binary }
+            video/mp4:
+              schema: { type: string, format: binary }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Job is not finished yet (status is queued or processing)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /detect:
+    post:
+      tags: [Detection]
+      summary: Check a media file for a watermark
+      operationId: detectWatermark
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Image, audio, or video file to check
+      responses:
+        '200':
+          description: Detection finished (whether or not a watermark was found)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetectionResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+
+  /test/setup:
+    post:
+      summary: Prepare resources for a session and return the same ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_id]
+              properties:
+                session_id: {type: string, minLength: 1, maxLength: 200}
+                setup: {type: object, description: "Pod starting data; our pod uses {}"}
+            example: {session_id: "run-123", setup: {}}
+      responses:
+        '201':
+          description: Ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session_id]
+                properties: {session_id: {type: string}}
+        '400': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '500': {$ref: '#/components/responses/Error'}
+  /test/report:
+    get:
+      summary: Code coverage measured for this session (currently unavailable -> nulls)
+      parameters:
+        - {name: session_id, in: query, required: true, schema: {type: string, minLength: 1}}
+      responses:
+        '200':
+          description: Coverage report
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session_id, coverage]
+                properties:
+                  session_id: {type: string}
+                  coverage:
+                    type: object
+                    required: [code]
+                    properties:
+                      code:
+                        type: object
+                        required: [covered, total, basis]
+                        properties:
+                          covered: {type: [integer, 'null']}
+                          total: {type: [integer, 'null']}
+                          basis: {type: string, minLength: 1}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+components:
+  parameters:
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      description: ID returned when the job was created
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    MediaKind:
+      type: string
+      enum: [image, audio, video]
+
+    WatermarkRequest:
+      type: object
+      required: [file, ai_status, ai_tools]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: "Implemented: PNG, JPG, JPEG. Planned: WAV, MP3, MP4. Max 100 MB."
+        # This section was modified for this branch's custom payload format.
+        ai_status:
+          type: string
+          enum: [generated, edited, both]
+        ai_tools:
+          type: array
+          minItems: 1
+          maxItems: 4
+          uniqueItems: true
+          description: Repeated multipart ai_tools fields; code mapping is branch-local.
+          items:
+            type: string
+            enum: [unknown, openai, midjourney, stable_diffusion, flux, firefly, google, other]
+
+    Job:
+      type: object
+      required: [id, status, mediaKind, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [queued, processing, completed, failed]
+        mediaKind:
+          $ref: '#/components/schemas/MediaKind'
+        createdAt:
+          type: string
+          format: date-time
+        resultUrl:
+          type: [string, null]
+          description: Present only when status is completed
+          example: /watermark-jobs/3f2a9c1e-7b4d-4e8a-9f10-2c5d6e7f8a9b/result
+        error:
+          type: [string, null]
+          description: Present only when status is failed
+
+    DetectionResult:
+      type: object
+      required: [detected, confidence, mediaKind]
+      properties:
+        detected:
+          type: boolean
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Mean normalized bit-vote consistency before ECC; not the probability of AI origin or watermark authenticity.
+          example: 0.97
+        mediaKind:
+          $ref: '#/components/schemas/MediaKind'
+        payload:
+          type: [string, null]
+          # This section was modified for this branch's custom payload format.
+          description: Lowercase hex of 14 bytes; status (1), count (1), four AI codes (4), CRC32 (4), Reed-Solomon parity (4). Codes are unknown=0, openai=1, midjourney=2, stable_diffusion=3, flux=4, firefly=5, google=6, other=254. Unused slots are zero; absent if not detected.
+          pattern: '^[0-9a-f]{28}$'
+          example: 03020305000059e8ed687f6d5776
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: unsupported_media_type
+        message:
+          type: string
+          example: Files of type image/gif are not supported.
+
+  responses:
+    Error:
+      description: Error with code, message and source "system"
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [message, source]
+            properties:
+              code: {type: string}
+              message: {type: string, minLength: 1}
+              source: {type: string, enum: [system]}
+    BadRequest:
+      description: Request was malformed or missing required fields
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: No job exists with that ID
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PayloadTooLarge:
+      description: File exceeds the 100 MB limit
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UnsupportedMediaType:
+      description: File type is not supported
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

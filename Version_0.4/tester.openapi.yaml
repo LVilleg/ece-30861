@@ -1,0 +1,123 @@
+openapi: 3.1.1
+info:
+  title: AI Media Watermarking Cross-Team Tester
+  version: 0.4.0
+servers:
+  - url: http://127.0.0.1:8000/tester
+    description: Local tester base
+paths:
+  /test/setup:
+    post:
+      summary: Prepare a new session on an approved target system
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_url]
+              properties:
+                target_url: {type: string, format: uri}
+      responses:
+        '201':
+          description: Target is ready
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Session'}
+        default: {$ref: '#/components/responses/Error'}
+  /test/run:
+    post:
+      summary: Run the suite once and store its final report
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/Session'}
+      responses:
+        '200': {$ref: '#/components/responses/Report'}
+        '409': {$ref: '#/components/responses/Error'}
+        '500':
+          description: Tester aborted. Retrieve available results using GET /test/report.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /test/report:
+    get:
+      summary: Retrieve the finalized suite report without rerunning tests
+      parameters:
+        - name: session_id
+          in: query
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 200}
+      responses:
+        '200': {$ref: '#/components/responses/Report'}
+        '409':
+          description: The suite has not ended
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        default: {$ref: '#/components/responses/Error'}
+components:
+  responses:
+    Report:
+      description: Stored suite report, including individual outcomes and coverage
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Report'}
+    Error:
+      description: Invalid request, unknown or conflicting session, or service failure
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+  schemas:
+    Session:
+      type: object
+      required: [session_id]
+      properties:
+        session_id: {type: string, minLength: 1, maxLength: 200}
+    ErrorSource:
+      type: string
+      enum: [tester, system, communication, unknown]
+    Error:
+      type: object
+      required: [message, source]
+      properties:
+        message: {type: string, minLength: 1}
+        source: {$ref: '#/components/schemas/ErrorSource'}
+    Result:
+      type: object
+      required: [test_id, outcome, message]
+      properties:
+        test_id: {type: string, minLength: 1}
+        outcome: {enum: [pass, fail, error, skip]}
+        message: {type: string, minLength: 1}
+        source: {$ref: '#/components/schemas/ErrorSource'}
+      if:
+        properties:
+          outcome: {const: error}
+      then:
+        required: [source]
+    Measure:
+      type: object
+      required: [covered, total, basis]
+      properties:
+        covered: {type: [integer, 'null'], minimum: 0}
+        total: {type: [integer, 'null'], minimum: 0}
+        basis: {type: string, minLength: 1}
+    Report:
+      type: object
+      required: [session_id, target_url, results, coverage]
+      properties:
+        session_id: {type: string, minLength: 1}
+        target_url: {type: string, format: uri}
+        results:
+          type: array
+          items: {$ref: '#/components/schemas/Result'}
+        coverage:
+          type: object
+          required: [code, component, system]
+          properties:
+            code: {$ref: '#/components/schemas/Measure'}
+            component: {$ref: '#/components/schemas/Measure'}
+            system: {$ref: '#/components/schemas/Measure'}

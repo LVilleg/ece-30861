@@ -27,3 +27,8 @@ Currently, requirements.zip contains the following:
 
 This was uploaded to AWS Elastic Beanstalk. 
 Current URL: http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/
+
+# Supported File Types
+Image: png, jpeg
+Audio: m4a, mp3, wav
+Video: mp4, avi, mov, mpeg-2

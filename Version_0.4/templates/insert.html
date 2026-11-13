@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block page_title %}Watermark Mode | AI Watermarking{% endblock %}
+{% block content %}
+<section class="panel panel--intro">
+    <h2>AI Watermarking Tool</h2>
+    <p class="mode-label">Watermark mode</p>
+    <p>This open-source software is intended as a tool to assist with the labeling and identification of Generative AI outputs.</p>
+    <p>Supported file types are listed below:</p>
+    <div class="button-row">
+        <a><span class="brand-mark-light">Image - png, jpeg</span></a>
+        <a><span class="brand-mark-light">Audio - m4a, mp3, wav</span></a>
+        <a><span class="brand-mark-light">Video - mp4, avi, mov, mpeg-2</span></a>
+    </div>
+</section>
+<section class="panel">
+    <form action="{{ url_for('submitFile') }}" method="POST" enctype="multipart/form-data">
+        <div class="field">
+            <label for="user-file">Choose a file to watermark:</label>
+            <input type="file" id="user-file" name="user-file" required>
+        </div>
+        <button type="submit" class="button">Add watermark</button>
+    </form>
+</section>
+{% endblock %}
