@@ -1,0 +1,529 @@
+ECE30861 VERSION 0.4 — HTTP TESTER TERMINAL GUIDE
+================================================
+Document ID: ece30861-v0.4-http-tester-terminal-guide
+Revision: 2026-11-20
+Format: UTF-8 plain text, structured for humans, scripts, and LLM/AI agents.
+Scope: HTTP invocation of the *website's built-in tester* and the separate
+       *cross-team HTTP tester*. Includes Windows PowerShell, Windows cmd.exe,
+       and Unix Bash/zsh-compatible examples.
+
+IMPORTANT DISTINCTION
+---------------------
+This project has TWO DIFFERENT TESTERS. Do not mix their routes, input formats,
+run identifiers, or result schemas.
+
+A. WEBSITE / BROWSER AUTOMATIC TESTER (local regression tests)
+   Combined website host (e.g., http://127.0.0.1:8000):
+     POST /tester/run                    form mode=full|quick, returns HTTP 303
+     GET  /tester?run=<run_id>           HTML progress page
+     GET  /tester/report/<run_id>        JSON progress + final report
+   It starts tester.py on the SERVER, testing that server's local application.
+   It does not accept a remote target_url and does not run the cross-team suite.
+
+B. CROSS-TEAM HTTP TESTER (black-box HTTP tests against a selected target)
+   Separate tester (e.g., http://127.0.0.1:8001):
+     POST /test/setup                    JSON {"target_url":"..."}, HTTP 201
+     POST /test/run                      JSON {"session_id":"..."}, HTTP 200/500
+     GET  /test/report?session_id=...    JSON stored test report
+   Combined website host (e.g., http://127.0.0.1:8000):
+     POST /tester/test/setup
+     POST /tester/test/run
+     GET  /tester/test/report?session_id=...
+   Cross-team sessions are one-use: create a NEW session with setup for each run.
+   Unlike the browser tester, there is no quick/full mode on these JSON routes.
+
+PATH SELECTION / CONFIGURATION
+------------------------------
+Deployment variant     Website base             Cross-team tester base      System API base
+Combined server        http://127.0.0.1:8000    http://127.0.0.1:8000/tester http://127.0.0.1:8000/system
+Separate services      [not hosted there]       http://127.0.0.1:8001        http://127.0.0.1:8000
+
+Replace hostnames/ports with the actual deployed, reachable service addresses.
+Use HTTPS for externally deployed systems when available. A process on another
+machine must not use 127.0.0.1 to refer to YOUR computer; it must use the
+remote host's DNS name or reachable IP. Avoid a trailing slash in base vars.
+
+In a combined deployment, /tester/run is the website FORM endpoint, whereas
+/tester/test/run is the cross-team JSON endpoint. Likewise:
+  /tester/report/<run_id>       != /tester/test/report?session_id=<session_id>
+  website run_id: 32 lowercase hexadecimal characters
+  cross-team session_id: nonempty text; normally a UUID string returned by setup
+
+PREREQUISITES / OPTIONAL LOCAL SERVER STARTUP
+---------------------------------------------
+- The HTTP commands require a running deployment. They do NOT require running
+  tester.py on the client machine.
+- Windows 10/11 generally include curl.exe; call it as 'curl.exe' in
+  PowerShell to avoid the historical 'curl' Invoke-WebRequest alias.
+- Unix examples use curl and python3 for JSON parsing; jq is NOT required.
+- To HOST this project from sources, install Python 3.10+ and requirements.txt.
+- The uploaded source subset references service directories 'system_service/',
+  'tester_service/', 'testing/', and website 'templates/' that were NOT among
+  the uploaded files. Those directories must be present in a real deployment.
+  The examples below were checked against the uploaded code and OpenAPI YAML;
+  live HTTP execution was not possible from this incomplete uploaded subset.
+
+Combined deployment startup — WINDOWS POWERSHELL (run in complete project root):
+  python -m venv .venv
+  .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+  $env:POD_SYSTEM_URLS = 'http://127.0.0.1:8000/system'
+  $env:OWN_SYSTEM_URLS = 'http://127.0.0.1:8000/system'
+  .\.venv\Scripts\python.exe main.py
+
+Combined deployment startup — UNIX BASH (run in complete project root):
+  python3 -m venv .venv
+  .venv/bin/python -m pip install -r requirements.txt
+  export POD_SYSTEM_URLS='http://127.0.0.1:8000/system'
+  export OWN_SYSTEM_URLS='http://127.0.0.1:8000/system'
+  .venv/bin/python main.py
+
+Separate-services startup — WINDOWS POWERSHELL (use two terminals):
+  # Terminal 1: target system
+  .\.venv\Scripts\python.exe -m uvicorn system_service.api:app --host 0.0.0.0 --port 8000
+  # Terminal 2: tester; set these before starting it
+  $env:POD_SYSTEM_URLS = 'http://127.0.0.1:8000'
+  $env:OWN_SYSTEM_URLS = 'http://127.0.0.1:8000'
+  .\.venv\Scripts\python.exe -m uvicorn tester_service.api:app --host 0.0.0.0 --port 8001
+
+Separate-services startup — UNIX BASH (use two terminals):
+  # Terminal 1: target system
+  .venv/bin/python -m uvicorn system_service.api:app --host 0.0.0.0 --port 8000
+  # Terminal 2: tester; set these before starting it
+  export POD_SYSTEM_URLS='http://127.0.0.1:8000'
+  export OWN_SYSTEM_URLS='http://127.0.0.1:8000'
+  .venv/bin/python -m uvicorn tester_service.api:app --host 0.0.0.0 --port 8001
+
+Notes: POD_SYSTEM_URLS is a comma-separated list of EXACT approved system
+base URLs, including path prefixes such as /system. The tester rejects a URL
+not on its approved list (403). OWN_SYSTEM_URLS marks own-team systems.
+The combined server uses port 8000 by default. The Procfile uses the PORT
+environment variable when deployed. These variables are server-side settings,
+not arguments to POST /tester/run. The standalone tester has interactive API
+docs at <tester-base>/docs when the full FastAPI package is deployed.
+
+=======================================================================
+WINDOWS — POWERSHELL
+=======================================================================
+
+A1. WEBSITE AUTOMATIC TESTER: START + POLL + SAVE JSON (PowerShell)
+------------------------------------------------------------------
+# Supply your actual combined website origin; use a NEW file name if desired.
+$site = 'http://127.0.0.1:8000'
+$headersFile = 'website-tester-headers.txt'
+
+# mode can be 'quick' or 'full'. Omitting mode selects 'full'.
+# -d/--data-urlencode sends x-www-form-urlencoded; redirect is NOT followed.
+$httpStatus = curl.exe -sS -D $headersFile -o NUL -w '%{http_code}' `
+  --data-urlencode 'mode=quick' "$site/tester/run"
+if ($LASTEXITCODE -ne 0 -or $httpStatus -ne '303') {
+  throw "Expected HTTP 303 for tester start; got HTTP $httpStatus. Inspect $headersFile"
+}
+
+$locationLine = Get-Content $headersFile |
+  Where-Object { $_ -match '^Location:\s*' } | Select-Object -Last 1
+$match = [regex]::Match([string]$locationLine, '[?&]run=([0-9a-f]{32})(?:[&#]|$)')
+if (-not $match.Success) { throw 'Cannot read run_id from Location header.' }
+$runId = $match.Groups[1].Value
+Write-Host "Website tester run_id: $runId"
+
+# JSON status values: running, passed, failed, error.
+# This GET does not start or re-run the tester.
+do {
+  $status = Invoke-RestMethod -Uri "$site/tester/report/$runId" -Method Get
+  Write-Host "Website tester status: $($status.status)"
+  if ($status.status -eq 'running') { Start-Sleep -Seconds 2 }
+} while ($status.status -eq 'running')
+
+# Download original HTTP JSON rather than a re-serialized copy.
+curl.exe -fsS "$site/tester/report/$runId" -o "website-tester-$runId.json"
+if ($status.status -ne 'passed') {
+  Write-Warning "Tester finished with status $($status.status); see JSON report/output."
+}
+
+# To run FULL mode instead, replace '--data-urlencode mode=quick' above with:
+#   --data-urlencode 'mode=full'
+# To query the HTML status page (not JSON):
+#   curl.exe -i "$site/tester?run=$runId"
+
+B1. CROSS-TEAM TESTER: SETUP + RUN + GET REPORT (PowerShell)
+----------------------------------------------------------
+# Separate deployment defaults. Combined: use testerBase ...:8000/tester
+# and systemBase ...:8000/system.
+$testerBase = 'http://127.0.0.1:8001'
+$systemBase = 'http://127.0.0.1:8000'
+
+# Step 1: JSON setup against the tester, not against the system.
+$setupBody = @{ target_url = $systemBase } | ConvertTo-Json -Compress
+$setup = Invoke-RestMethod -Method Post -Uri "$testerBase/test/setup" `
+  -ContentType 'application/json' -Body $setupBody
+$sessionId = $setup.session_id
+if (-not $sessionId) { throw 'Tester setup returned no session_id.' }
+Write-Host "Cross-team session_id: $sessionId"
+
+# Step 2: Run the entire suite ONCE for that session. It can take time.
+# A 500 may mean the tester aborted but saved a recoverable report.
+$runBody = @{ session_id = $sessionId } | ConvertTo-Json -Compress
+try {
+  $runResult = Invoke-RestMethod -Method Post -Uri "$testerBase/test/run" `
+    -ContentType 'application/json' -Body $runBody
+} catch {
+  Write-Warning "Run request returned an HTTP error: $_. Checking stored report."
+}
+
+# Step 3: GET is a retrieval, not a re-run. A still-running suite yields 409.
+$escapedId = [uri]::EscapeDataString($sessionId)
+$storedReport = Invoke-RestMethod -Method Get `
+  -Uri "$testerBase/test/report?session_id=$escapedId"
+$storedReport.results | Format-Table test_id, outcome, message -AutoSize
+$storedReport | ConvertTo-Json -Depth 20 |
+  Set-Content -Path "cross-team-$sessionId.json" -Encoding utf8
+
+# 200 means the suite reached a normal end, NOT that every case passed.
+$badCases = @($storedReport.results | Where-Object { $_.outcome -ne 'pass' })
+Write-Host "Non-passing test count: $($badCases.Count)"
+
+# Do not reuse sessionId for another POST /test/run; setup a fresh session.
+
+=======================================================================
+WINDOWS — COMMAND PROMPT (cmd.exe)
+=======================================================================
+
+A2. WEBSITE AUTOMATIC TESTER (cmd.exe)
+--------------------------------------
+REM These are commands for an INTERACTIVE cmd.exe session.
+set "SITE=http://127.0.0.1:8000"
+curl.exe -sS -D website-tester-headers.txt -o NUL --data-urlencode "mode=full" "%SITE%/tester/run"
+REM Read the Location header. It should contain ?run=<32_hex_character_id>.
+type website-tester-headers.txt
+set "RUN_ID=PASTE_32_HEX_RUN_ID_HERE"
+REM Repeat the next command to inspect progress until status != running.
+curl.exe -sS "%SITE%/tester/report/%RUN_ID%" -o website-tester-report.json
+type website-tester-report.json
+
+CMD PLACEHOLDER RULES:
+- Replace PASTE_32_HEX_RUN_ID_HERE with the actual run= value from Location.
+- The curl -w format should be '%{http_code}' at an INTERACTIVE cmd.exe
+  prompt. In a .bat/.cmd SCRIPT use '%%{http_code}' to escape the percent.
+  For portability, the example above does not rely on -w output; you can
+  remove the -w option entirely. Use '-i' or '-D' for HTTP headers.
+- Use '--data-urlencode "mode=quick"' for quick mode; 'mode=full' for full.
+
+B2. CROSS-TEAM TESTER (cmd.exe; copy session ID manually)
+---------------------------------------------------------
+set "TESTER=http://127.0.0.1:8001"
+set "SYSTEM=http://127.0.0.1:8000"
+REM For a combined deployment instead:
+REM set "TESTER=http://127.0.0.1:8000/tester"
+REM set "SYSTEM=http://127.0.0.1:8000/system"
+
+curl.exe -i -H "Content-Type: application/json" --data "{\"target_url\":\"%SYSTEM%\"}" "%TESTER%/test/setup"
+REM Copy the session_id value in the 201 JSON response.
+set "SESSION_ID=PASTE_SESSION_ID_FROM_SETUP"
+curl.exe -i -H "Content-Type: application/json" --data "{\"session_id\":\"%SESSION_ID%\"}" "%TESTER%/test/run"
+curl.exe -fsS "%TESTER%/test/report?session_id=%SESSION_ID%" -o cross-team-report.json
+type cross-team-report.json
+
+=======================================================================
+UNIX-BASED OS — BASH (Linux, macOS; zsh users can run as a Bash script)
+=======================================================================
+
+A3. WEBSITE AUTOMATIC TESTER: START + POLL + SAVE JSON (Bash)
+------------------------------------------------------------
+SITE='http://127.0.0.1:8000'
+headers_file=$(mktemp)
+http_status=$(curl -sS -D "$headers_file" -o /dev/null -w '%{http_code}' \
+  --data-urlencode 'mode=quick' "$SITE/tester/run")
+if [ "$http_status" != '303' ]; then
+  printf 'Expected 303; got %s\n' "$http_status" >&2
+  cat "$headers_file" >&2
+  rm -f "$headers_file"
+  exit 1
+fi
+location=$(awk 'tolower($1)=="location:" {print $2}' "$headers_file" | tr -d '\r' | tail -n 1)
+rm -f "$headers_file"
+run_id=$(printf '%s\n' "$location" | sed -nE 's/.*[?&]run=([0-9a-f]{32})([&#].*)?$/\1/p')
+if [ -z "$run_id" ]; then echo 'No run_id found in Location.' >&2; exit 1; fi
+printf 'Website run_id=%s\n' "$run_id"
+
+while :; do
+  curl -fsS "$SITE/tester/report/$run_id" -o "website-tester-$run_id.json" || exit 1
+  status=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["status"])' \
+    "website-tester-$run_id.json")
+  printf 'Status=%s\n' "$status"
+  [ "$status" != 'running' ] && break
+  sleep 2
+done
+[ "$status" = 'passed' ] || { echo 'Tester did not pass. Review report.' >&2; exit 1; }
+
+# To run full mode: change 'mode=quick' above to 'mode=full'.
+# HTML page: curl -i "$SITE/tester?run=$run_id"
+
+B3. CROSS-TEAM TESTER: SETUP + RUN + GET REPORT (Bash)
+------------------------------------------------------
+# Separate services:
+TESTER='http://127.0.0.1:8001'
+SYSTEM='http://127.0.0.1:8000'
+# Combined deployment alternative:
+# TESTER='http://127.0.0.1:8000/tester'
+# SYSTEM='http://127.0.0.1:8000/system'
+
+setup_body=$(python3 -c 'import json,sys; print(json.dumps({"target_url":sys.argv[1]}))' "$SYSTEM")
+setup_response=$(curl -fsS -H 'Content-Type: application/json' \
+  --data "$setup_body" "$TESTER/test/setup") || exit 1
+session_id=$(printf '%s\n' "$setup_response" | python3 -c \
+  'import json,sys; print(json.load(sys.stdin)["session_id"])') || exit 1
+printf 'Cross-team session_id=%s\n' "$session_id"
+
+run_body=$(python3 -c 'import json,sys; print(json.dumps({"session_id":sys.argv[1]}))' "$session_id")
+# Do NOT use -f here: even an HTTP 500 abort can have a stored report.
+run_http=$(curl -sS -o cross-team-run-response.json -w '%{http_code}' \
+  -H 'Content-Type: application/json' --data "$run_body" "$TESTER/test/run") || exit 1
+printf 'Run HTTP status=%s\n' "$run_http"
+
+curl -fsS "$TESTER/test/report?session_id=$session_id" \
+  -o "cross-team-$session_id.json" || exit 1
+python3 - "$session_id" <<'PY'
+import json, pathlib, sys
+p = pathlib.Path('cross-team-' + sys.argv[1] + '.json')
+report = json.loads(p.read_text(encoding='utf-8'))
+for r in report['results']:
+    print(r['test_id'], r['outcome'], r.get('message', ''))
+bad = [r for r in report['results'] if r['outcome'] != 'pass']
+print('Non-passing cases:', len(bad), 'of', len(report['results']))
+sys.exit(1 if bad else 0)
+PY
+
+=======================================================================
+GENERIC CURL / HTTP REQUEST REFERENCE (ALL OS)
+=======================================================================
+
+CURL STRUCTURE
+  curl [transport flags] [-X METHOD] [-H 'Header: value'] [body flags] URL
+  -X POST               explicit POST (not needed when --data or --form used)
+  -H 'Content-Type: application/json'   JSON request header
+  -d/--data STRING      sends body; defaults to POST and form content-type
+  --data-urlencode      percent-encodes a form field (e.g., mode=quick)
+  -F/--form NAME=VALUE  sends multipart/form-data; @FILE uploads file bytes
+  -i                    print response headers with the response body
+  -D FILE               write response headers to FILE
+  -o FILE               write response body to FILE (use NUL on Windows)
+  -sS                   silent progress, but show transport errors
+  -f                    fail on 4xx/5xx HTTP status (and generally suppress body)
+  -L                    follow redirects (AVOID on website tester startup when
+                        you need the 303 Location header and run_id)
+  -w '%{http_code}'     output HTTP status (in .bat files, %%{http_code})
+  -G                    convert --data values to URL query parameters
+  --url URL             explicit URL option, same as trailing URL
+
+RAW WEBSITE TESTER REQUEST (combined server ONLY)
+  POST /tester/run HTTP/1.1
+  Content-Type: application/x-www-form-urlencoded
+
+  mode=quick
+
+Expected: 303 See Other; Location: /tester?run=<32_lowercase_hex_id>
+Follow with GET /tester/report/<run_id> (JSON), not /tester/test/report.
+The result endpoint may return status="running" until the job finishes.
+A second POST may return the SAME currently running run ID (one run per
+server instance), not necessarily start a new job. Timeout: 180 seconds
+for the tester subprocess; it may report status="error" if interrupted.
+
+RAW CROSS-TEAM TESTER REQUESTS (paths are relative to tester base)
+  POST /test/setup HTTP/1.1
+  Content-Type: application/json
+
+  {"target_url":"http://127.0.0.1:8000"}
+
+  POST /test/run HTTP/1.1
+  Content-Type: application/json
+
+  {"session_id":"THE_ID_FROM_SETUP"}
+
+  GET /test/report?session_id=THE_ID_FROM_SETUP HTTP/1.1
+
+Expected setup success: HTTP 201 JSON {"session_id":"<uuid>"}.
+Expected run success: HTTP 200 JSON report (regardless of pass/fail cases).
+Expected stored report: HTTP 200 JSON report after suite finished.
+If run returns HTTP 500 because of an abort, retrieve the stored report.
+To run again, POST setup for a NEW session ID; the old one is spent.
+
+AGENT INPUT / OUTPUT CONTRACT
+-----------------------------
+1) Intent 'website-local-quick' or 'website-local-full':
+   POST form to <website-origin>/tester/run with 'mode' field.
+   Extract run_id from 303 Location query parameter 'run'.
+   Poll GET <website-origin>/tester/report/<run_id> until
+   response.status in {passed, failed, error}. Store the final JSON.
+   Treat status=='passed' AND report.successful==true as pass.
+   Do not mistake HTTP 200 on report GET for tests passing.
+
+2) Intent 'cross-team':
+   POST JSON target_url to <tester-base>/test/setup.
+   Extract session_id from the HTTP 201 JSON body.
+   POST JSON session_id to <tester-base>/test/run exactly ONCE.
+   GET <tester-base>/test/report?session_id=<URL_ENCODED_SESSION_ID>.
+   Record report.results[] and report.coverage.
+   Overall case pass ONLY if all planned results have outcome=='pass'.
+   HTTP 200 on /test/run means suite completed, not all checks passed.
+   Report coverage can contain nulls, which mean unavailable, NOT zero.
+
+3) Never send website 'mode' to cross-team /test/run, and never send
+   cross-team 'session_id' as website /tester/run input.
+4) Do not retry POST /test/run after a network timeout without first checking
+   GET /test/report: an accepted session may already be running/finished.
+5) POST /tester/run may trigger expensive media tests on the server. Use it
+   only on an authorized deployment; repeated calls can consume resources.
+6) Be careful with URL prefixes: the target_url must name the SYSTEM API base,
+   not a browser page, the tester API, or the /health endpoint itself.
+7) Do not assume a false result means "content is human-created"; detection
+   only identifies the watermark formats supported by the deployed system.
+
+ACCEPTED INPUTS / RESPONSE SCHEMAS
+----------------------------------
+WEBSITE AUTOMATIC TESTER
+  POST /tester/run
+  Encoding: application/x-www-form-urlencoded OR multipart/form-data
+  Form field: mode (string) ∈ {'full','quick'}; omitted => 'full'
+  Invalid mode => HTTP 400 HTML (NOT JSON)
+  Start unavailable => HTTP 503 HTML
+  Successful start => HTTP 303 redirect Location /tester?run=<run_id>
+
+  GET /tester?run=<run_id>  => HTML status page
+  GET /tester/report/<run_id> => JSON; 404 if unknown/invalid ID
+  run_id regex: ^[0-9a-f]{32}$
+  Expected outer JSON members (from tester_runner.py):
+    id             string run ID
+    mode           'full' or 'quick'
+    status         'running' | 'passed' | 'failed' | 'error'
+    message        human-readable string
+    started_at     Unix seconds (number)
+    report         null until available; then a nested local tester report
+    output         string, last up to 32,000 bytes of captured test log
+    exit_code      integer when subprocess finishes (may be absent on errors)
+    completed_at   Unix seconds after finalization (may be absent while running)
+  Nested report (when present):
+    mode, completed_at_utc, project_directory, successful (boolean),
+    tests_run, failures, errors, skipped, elapsed_seconds, failure_details[].
+  'quick' skips audio/video tests; 'full' includes them.
+  Reports are kept in server-local TEMPORARY files, not durable across
+  deployments/instances. A load balancer can send a polling GET to another
+  instance that does not know the run ID. No auth is evident in uploaded route
+  code; do not expose an unprotected tester unnecessarily.
+
+CROSS-TEAM TESTER
+  POST /test/setup
+    Content-Type: application/json
+    Required JSON field: target_url (string; absolute HTTP(S) approved base URL)
+    URL may include a deployment prefix, e.g. /system.
+    Do not include query/fragment, /test/setup, or a resource path.
+    Success: 201 {"session_id":"..."}.
+    Possible errors: 400 invalid URL/body, 403 unapproved URL,
+    500 invalid target response or communication failure; the target may
+    return a valid 4xx/5xx project setup error that is forwarded unchanged.
+
+  POST /test/run
+    Content-Type: application/json
+    Required JSON field: session_id (nonempty text from setup; max 200 by YAML)
+    Success: 200 {"session_id":"...", "target_url":"...", "results":[],
+                  "coverage":{...}}
+    Errors: 400 missing ID, 404 unknown ID, 409 already started,
+            500 tester aborted (stored report is still retrievable).
+    No selector for quick/full or individual cases. Runs full suite once.
+
+  GET /test/report?session_id=<id>
+    Exactly ONE nonempty session_id query argument.
+    Success: 200 same stored report; 400 missing/multiple/empty ID;
+             404 unknown ID; 409 suite not ended yet.
+
+  Report result fields:
+    session_id           string
+    target_url           string
+    results              array of planned cases, each:
+      test_id            e.g., T-01, T-02, ... T-08
+      outcome            'pass' | 'fail' | 'error' | 'skip'
+      message            human-readable explanation
+      source             optional; used on error ('tester', 'system',
+                         'communication', 'unknown')
+    coverage             object with code, component, system; model may be
+                         present for a self-test. Each measure has:
+      covered            integer or null
+      total              integer or null
+      basis              explanatory string
+    Typical tests from cross_team_cases.py:
+      T-01 health, T-02 PNG watermark round-trip,
+      T-03 JPEG watermark round-trip, T-04 two-job isolation,
+      T-05 clean image negatives, T-06 malformed requests,
+      T-07 unsupported GIF, T-08 missing job.
+
+CROSS-TEAM TARGET SYSTEM (diagnostics; NOT the same as invoking a test run)
+  GET  <system-base>/health                  -> {"status":"ok"}
+  POST <system-base>/test/setup             -> target-side setup;
+                                              tester normally calls it
+  GET  <system-base>/test/report?session_id=... -> target code coverage
+  POST <system-base>/watermark-jobs         -> multipart:
+       file=@image.png (required, exactly one)
+       ai_status=generated|edited|both (required, exactly one)
+       ai_tools=<value> (required, 1-4 distinct values; REPEAT this field)
+       ai_tools enum: unknown, openai, midjourney, stable_diffusion, flux,
+                      firefly, google, other
+       Response: 202 JSON job object and Location header; polling via
+       GET <system-base>/watermark-jobs/<job_id>. Download via
+       GET <system-base>/watermark-jobs/<job_id>/result when completed.
+  POST <system-base>/detect                 -> multipart file=@image.png
+  X-Test-Session-Id: used by cross-team tester when calling target; a normal
+       unaffiliated client should omit it rather than inventing a session.
+  Current system_api.py supports PNG/JPEG only for these job endpoints, up to
+  100,000,000 bytes. The BROWSER's legacy /insert_submit accepts other media
+  and has a separate 500 MiB cap. THESE ARE DIFFERENT INPUT CONTRACTS.
+  The README's historical 'payload' text field for the system API conflicts
+  with current system_api.py; current executable code uses ai_status/ai_tools.
+
+HTTP ERROR AND TROUBLESHOOTING LOOKUP
+-------------------------------------
+HTTP 303 website start: success; capture Location instead of interpreting HTML.
+HTTP 200 tester report: retrieval worked; inspect JSON status / case outcomes.
+HTTP 201 cross-team setup: success; store the newly issued session_id.
+HTTP 400: wrong form mode, malformed JSON, missing field, invalid session ID.
+HTTP 403: target_url not approved in server-side POD_SYSTEM_URLS.
+HTTP 404: wrong path, unrecognized run_id/session_id, or expired/lost run.
+HTTP 409: cross-team run already used OR report requested before completion.
+HTTP 500: unexpected tester/system error or cross-team abort; try report GET.
+HTTP 503: website tester could not be started.
+Connection refused: server is not running on that port, host unreachable, or
+  a firewall/network setting prevents the request.
+Wrong Content-Type: send JSON to cross-team /test/* endpoints, but FORM data
+  to website /tester/run. A JSON request to website /tester/run does not set
+  request.form['mode']; it may silently use default 'full'.
+Report not found on AWS after successful redirect: check multiple instances
+  and non-shared temporary storage. Do not assume the job never ran.
+
+OPTIONAL LOCAL-ONLY CLI (NO HTTP; NOT A SUBSTITUTE FOR REMOTE API TESTING)
+------------------------------------------------------------------------
+On Windows PowerShell:
+  .\.venv\Scripts\python.exe tester.py --quick --report local-report.json
+  .\.venv\Scripts\python.exe tester.py --report local-full-report.json
+On Unix:
+  .venv/bin/python tester.py --quick --report local-report.json
+  .venv/bin/python tester.py --report local-full-report.json
+The local tester exits 0 for all-pass, 1 for failed checks, 2 for setup or
+report-writing errors. It tests the local application with bundled fixtures;
+it neither sends HTTP requests to a live deployed site nor runs the cross-team
+black-box tester. This is why the HTTP commands above are separate.
+
+SOURCES AND VERIFICATION
+------------------------
+Verified against these user-uploaded Version 0.4 files (not live requests):
+  application.py       combined mounts and preserved browser tester endpoints
+  main.py              website tester POST + GET + error behavior
+  tester_runner.py     run IDs, status schema, timeout, background process
+  tester.py            local quick/full suite and nested report schema
+  cross_team.py        JSON cross-team setup/run/report behavior
+  tester.openapi.yaml  public cross-team request/response contract
+  cross_team_cases.py  ordered test IDs and target checks
+  system_api.py        current required survey multipart fields, file limits
+  README.md            startup conventions, approved target environment vars
+  Procfile             deployment port configuration
+
+Treat source code and OpenAPI as the relevant executable/API definition if
+older README examples disagree. No running server, missing service packages,
+or complete deployment fixtures were supplied for a real end-to-end HTTP run.

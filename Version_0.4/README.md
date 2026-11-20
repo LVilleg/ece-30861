@@ -1,67 +1,80 @@
 # AI Media Watermarking Service — Version 0.4
 
-The Flask app exposes three interfaces through the existing WSGI entry point.
+## Run the system and tester on separate URLs
 
-| Base | Interface |
-| --- | --- |
-| `/` | Existing browser uploads, detection, and automatic local tester. |
-| `/system` | PNG/JPEG survey watermark jobs, detection, health, and system test endpoints. |
-| `/tester` | Course setup, run, and report endpoints. |
-
-The system accepts a multipart `file`, `ai_status`, and repeated `ai_tools` at
-`POST /system/watermark-jobs`. It returns `202` with a job UUID and a `Location`
-to poll. When the job completes, download its `resultUrl` and send those bytes
-as multipart `file` to `POST /system/detect` to retrieve the decoded survey.
-The project API caps each input file at 100,000,000 bytes. The older browser
-workflow has its own limits and continues using the fixed watermark.
-
-The [system contract](../project.yaml) and [tester contract](tester.openapi.yaml)
-describe the public endpoints. For a local cross-team run, start the app below
-and run these PowerShell commands in another terminal.
+The system accepts media over HTTP. The tester accepts a system base URL during setup, then sends its tests to that URL over HTTP. The two services can run on different machines. Install the dependencies once from this directory in PowerShell.
 
 ```powershell
-$base = 'http://127.0.0.1:8000/tester/test'
-$session = Invoke-RestMethod -Method Post -Uri "$base/setup" -ContentType 'application/json' -Body '{"target_url":"http://127.0.0.1:8000/system"}'
-$runBody = @{ session_id = $session.session_id } | ConvertTo-Json -Compress
-Invoke-RestMethod -Method Post -Uri "$base/run" -ContentType 'application/json' -Body $runBody
-Invoke-RestMethod -Uri "$base/report?session_id=$($session.session_id)"
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Setup waits for readiness, and a session allows one run. If a run times out or
-aborts, look up its report using the same ID. HTTP `409` on the lookup means
-the report is still pending. Use a new setup to run the suite again.
+Start the **system** in one terminal.
 
-### Deployment and pod settings
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn system_service.api:app --host 0.0.0.0 --port 8000
+```
 
-- Set `POD_SYSTEM_URLS` to a comma-separated list of approved system base URLs.
-  It defaults to `/system` on `127.0.0.1:8000` and `localhost:8000`. The tester
-  sends project requests with `X-Test-Session-Id`. The local system uses the
-  header to scope job access, and standalone requests can omit it.
-- `WATERMARK_STATE_DB` can point to a writable SQLite file outside the
-  application directory. The default is `instance/watermark.sqlite3`. App
-  workers on the same host must use the same database. The queue, artifacts,
-  system sessions, and finalized tester reports live in this database. Each
-  app process can run one background job at a time. Requests that submit or
-  poll jobs wake the worker, which can recover an expired claim after five
-  minutes. Use a single deployment instance with concurrent request handling
-  for self-tests. Retain the state file during active test sessions.
-- The tester uses a 10-second setup budget, a 45-second suite budget, and a
-  five-second socket timeout per target call. It polls unfinished jobs without
-  retrying job creation. Return `409` with `job_failed` for a failed job's result.
-- The local survey codec uses `generated=1`, `edited=2`, `both=3`, tool order as
-  submitted, big-endian CRC32, and four Reed–Solomon parity bytes. It matches
-  the published payload example. PNG and JPEG use different image embedding
-  techniques, with a metadata fallback for images with limited pixel capacity.
-  Re-encoding can remove a metadata watermark. Confirm encoding and session
-  conventions with pod partners before claiming interoperability.
-- Coverage counts are null with an explanation while source instrumentation
-  and the pod's component and acceptance-criteria counting rules are unavailable.
-  Register the deployed bases, access instructions, and maximum times after
-  verifying them in the deployment environment.
+Start the **tester** in a second terminal. Set `POD_SYSTEM_URLS` before startup to select the systems it may contact. It accepts a comma-separated list of exact HTTP or HTTPS base URLs, including deployment prefixes. Set `OWN_SYSTEM_URLS` to the addresses of your team's systems to identify self-tests.
 
-Run `python -m unittest -v test_cross_team` for the HTTP, state, and report
-regressions. The existing `python tester.py` suite checks the browser and
-legacy media functions described below.
+```powershell
+$env:POD_SYSTEM_URLS = 'http://127.0.0.1:8000'
+$env:OWN_SYSTEM_URLS = 'http://127.0.0.1:8000'
+.\.venv\Scripts\python.exe -m uvicorn tester_service.api:app --host 0.0.0.0 --port 8001
+```
+
+Open `http://localhost:8000/docs` for the system and `http://localhost:8001/docs` for the tester. From another machine, replace `localhost` with the hosting machine's reachable hostname or IP address. A tester on a separate machine also needs that reachable system URL in its configuration and in the setup request.
+
+| Service and method | Path relative to the service base | HTTP behavior |
+| --- | --- | --- |
+| System GET | `/health` | Returns the service status. |
+| System POST | `/watermark-jobs` | Accepts multipart `file` and optional text `payload` of up to 64 characters. Returns 202 and a job URL in `Location`. |
+| System GET | `/watermark-jobs/{jobId}` | Poll for `completed` or `failed`. |
+| System GET | `/watermark-jobs/{jobId}/result` | Downloads the marked file in its original format. Returns 409 while pending. |
+| System POST | `/detect` | Accepts multipart `file`. Returns detection, confidence, media kind and any recovered payload. |
+| System POST / GET | `/test/setup`, `/test/report?session_id=…` | Prepares a supplied session ID and returns that session's code coverage. |
+| Tester POST | `/test/setup` | Accepts JSON `target_url` and returns 201 with a new session ID after the target confirms readiness. |
+| Tester POST | `/test/run` | Accepts JSON `session_id`, runs one suite and stores the report. Each session supports one run. |
+| Tester GET | `/test/report?session_id=…` | Returns the stored report, including available results after an abort. Returns 409 while pending. |
+
+### Exercise a target through the tester
+
+Run these commands in a third terminal. For another team's service, add its base URL to the tester's `POD_SYSTEM_URLS` before starting the tester and use that URL for `$systemUrl` below. Keep `$testerUrl` pointed at your tester.
+
+```powershell
+$systemUrl = 'http://127.0.0.1:8000'
+$testerUrl = 'http://127.0.0.1:8001'
+$setup = Invoke-RestMethod -Method Post -Uri "$testerUrl/test/setup" -ContentType 'application/json' -Body (@{target_url = $systemUrl} | ConvertTo-Json)
+$runBody = @{session_id = $setup.session_id} | ConvertTo-Json
+$report = Invoke-RestMethod -Method Post -Uri "$testerUrl/test/run" -ContentType 'application/json' -Body $runBody
+$report.results | Format-Table test_id, outcome, message
+Invoke-RestMethod -Uri "$testerUrl/test/report?session_id=$($setup.session_id)" | ConvertTo-Json -Depth 8
+```
+
+A completed suite returns HTTP 200 even when individual cases fail. A tester abort returns 500 and its report is available at the same report URL. Each report has one result for each planned case. Coverage reports identify available measurements. The supplied contract leaves code instrumentation, the component inventory, the acceptance-criterion mapping and the team's milestone design mapping unspecified. Unavailable counts are null, with a reason. Self-tests also include model coverage.
+
+### System contract and storage
+
+The system accepts PNG, JPEG, WAV, MP3 and MP4, with a maximum input file size of 100,000,000 bytes. The watermark carries optional text in the media container. Stripping the watermark metadata can remove it. For a direct upload, use `curl.exe -F "file=@photo.png" -F "payload=my label" http://localhost:8000/watermark-jobs`. Follow the returned job URL and, once completed, download its `resultUrl`. Send the downloaded bytes with `curl.exe -F "file=@marked.png" http://localhost:8000/detect`.
+
+The tester sends `X-Test-Session-Id` with project requests so the target can associate jobs with the prepared session. Standalone clients can omit it. Set `SYSTEM_STATE_DB` and `TESTER_STATE_DB` to writable SQLite file paths for durable jobs and reports. Retain those files when restarting either process.
+
+| Location | Responsibility |
+| --- | --- |
+| `system_service/` | FastAPI system, durable job processing and media encoding/detection. |
+| `system_service/openapi.yaml` | System contract from the supplied `project(1).yaml`. Its two `components` sections are merged so every schema reference resolves. |
+| `tester_service/` | FastAPI tester, target HTTP client, ordered cases and stored reports. |
+| `tester.openapi.yaml` | Tester setup, run and report contract. |
+| `application.py` | Combined server for a single-host deployment, with the browser and the two API prefixes. |
+| `testing/` | HTTP integration tests, media and browser checks, and bundled fixtures. |
+
+From this directory, run `.\.venv\Scripts\python.exe -m unittest discover -v` to check the FastAPI lifecycle, the two-service HTTP flow, and the earlier survey protocol regressions. Run `.\.venv\Scripts\python.exe tester.py` for the full browser and media regression suite.
+
+### Run both APIs with the existing website
+
+As an alternative launch mode, run `.\.venv\Scripts\python.exe main.py` on port 8000. The browser opens at `/`. The system API lives under `/system` and the tester API under `/tester`. Each has its own `/docs` and `/openapi.json`. In the PowerShell example above, use `http://127.0.0.1:8000/system` for the system and `http://127.0.0.1:8000/tester` for the tester. Include the prefixed system URL in the tester configuration if overriding the defaults.
+
+For an ASGI host, launch `uvicorn application:app`. The included Elastic Beanstalk `Procfile` launches it on the configured port. Existing WSGI hosts can load `application:application`. Package the service directories, YAML files, requirements, templates, assets and test fixtures with the entry point. Exclude the local virtual environment and runtime databases.
 
 ## Legacy browser and CLI
 
@@ -90,10 +103,7 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000) in a browser. Stop the serve
 with `Ctrl+C`. Calling the virtual environment's Python directly avoids needing
 to activate it first.
 
-`main.py` starts a threaded Flask server on port 8000 for local development.
-`application.py` exposes the same Flask app as the WSGI object
-`application:application`; running `application.py` directly does not start a
-server.
+`main.py` starts the combined Uvicorn server on port 8000 and serves the Flask browser app alongside both FastAPI services.
 
 | Requirement | Purpose |
 | --- | --- |
@@ -101,7 +111,7 @@ server.
 | Pillow >= 10.0 | Reading, marking, and saving images. |
 | NumPy >= 1.24 | Binary marker processing and audio signal calculations. |
 | imageio-ffmpeg >= 0.6.0 | Locating FFmpeg for audio/video decoding and encoding. |
-| reedsolo >= 1.7.0, < 2 | Reed–Solomon parity and correction for survey payloads. |
+| reedsolo >= 1.7.0, < 2 | Historical survey codec. Reed–Solomon parity and correction for survey payloads. |
 
 The standard Windows wheel for `imageio-ffmpeg` includes FFmpeg. If a different
 installation does not supply the executable, `IMAGEIO_FFMPEG_EXE` can point to
@@ -159,7 +169,7 @@ is padded so the entire marker fits.
 
 To watermark a file:
 
-1. Open the watermark page at `/insert`.
+1. Open the watermark page at `/system`.
 2. Choose one supported file and select **Add watermark**.
 3. On the output page, select **Download** to save the processed copy.
 
@@ -184,7 +194,7 @@ Detection leaves the current watermarked download unchanged.
 
 | File | Responsibility |
 | --- | --- |
-| `application.py` | Imports `main.app` as `application` for a WSGI server. |
+| `application.py` | Serves the browser and both APIs through ASGI or WSGI. |
 | `main.py` | Creates the Flask app, handles uploads, selects result pages, and serves the current download and local assets. |
 | `watermark.py` | Embeds the marker, implements its underlying detection checks, and provides a watermarking command line interface. |
 | `detection.py` | Provides the dedicated detection API and command line interface, using `watermark.has_watermark()`. |
@@ -193,7 +203,7 @@ Detection leaves the current watermarked download unchanged.
 | `tester_runner.py` | Runs website-triggered checks in an isolated background process and stores temporary progress/results. |
 | `requirements.txt` | Lists the third-party Python dependencies. |
 | `templates/base.html` | Shared page layout, header, navigation, and local stylesheet link. |
-| `templates/insert.html` | Watermark upload form and switch to detection mode. |
+| `templates/system.html` | Watermark upload form and switch to detection mode. |
 | `templates/postWatermark.html` | Successful watermark output page with the download button. |
 | `templates/unsupportedFile.html` | Error page for unsupported watermark uploads. |
 | `templates/detectionMode.html` | Detection form, validation errors, and shared layout for detection results. |
@@ -214,8 +224,8 @@ Upload forms use `multipart/form-data` with the file field named `user-file`.
 
 | Method | Route | Behavior |
 | --- | --- | --- |
-| GET, POST | `/` | Redirects to `/insert`. |
-| GET | `/insert` | Displays the watermark form. |
+| GET, POST | `/` | Redirects to `/system`. |
+| GET | `/system` | Displays the watermark form. |
 | POST | `/insert_submit` | Marks one upload and displays `postWatermark.html`. |
 | GET | `/download` | Downloads the current marked bytes using the uploaded filename. |
 | GET | `/detection` | Displays the detection form. |
@@ -357,8 +367,7 @@ file extension does not preserve the original codec settings.
   uses temporary files, which are cleaned up when processing finishes. There is
   a 500 MiB file limit and a 501 MiB request limit, with no processing queue or
   persistent upload store.
-- The default startup uses Flask's threaded development server.
-  The current app is intended for local development and the single-file workflow.
+- The browser uses the single-file workflow. The system API stores each job and its download separately.
 
 ## Automatic tester
 

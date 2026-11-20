@@ -133,13 +133,14 @@ class WebTests(unittest.TestCase):
     def test_navigation_and_result_links(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers["Location"], "/insert")
-        self.assertIn(b'href="/detection"', self.client.get("/insert").data)
-        self.assertIn(b'href="/insert"', self.client.get("/detection").data)
+        self.assertEqual(response.headers["Location"], "/system")
+        self.assertEqual(self.client.get("/insert").headers["Location"], "/system")
+        self.assertIn(b'href="/detection"', self.client.get("/system").data)
+        self.assertIn(b'href="/system"', self.client.get("/detection").data)
         for route in ["/detection/found", "/detection/not-found"]:
             response = self.client.get(route)
             self.assertEqual(response.status_code, 200)
-            self.assertIn(b'href="/insert"', response.data)
+            self.assertIn(b'href="/system"', response.data)
             self.assertIn(b'href="/detection"', response.data)
 
     def test_watermark_download_and_detection_results(self):
@@ -216,7 +217,7 @@ class WebTests(unittest.TestCase):
 
 
     def test_tester_navigation_and_start(self):
-        self.assertIn(b'href="/tester"', self.client.get("/insert").data)
+        self.assertIn(b'href="/tester"', self.client.get("/system").data)
         self.assertIn(b'href="/tester"', self.client.get("/detection").data)
         page = self.client.get("/tester")
         self.assertEqual(page.status_code, 200)
@@ -247,7 +248,7 @@ class WebTests(unittest.TestCase):
                     response = self.client.get("/tester?run=" + run_id)
                     self.assertEqual(response.status_code, 200)
                     self.assertNotIn(b"<script>untrusted test output</script>", response.data)
-                    self.assertIn(b'href="/insert"', response.data)
+                    self.assertIn(b'href="/system"', response.data)
                     self.assertIn(b'href="/detection"', response.data)
                     self.assertEqual(b'http-equiv="refresh"' in response.data, status == "running")
                     report = self.client.get("/tester/report/" + run_id)
@@ -270,8 +271,13 @@ class ConfigurationTests(unittest.TestCase):
         self.assertFalse(text.startswith("\ufeff"), "nginx config must not start with a BOM")
 
     def test_wsgi_entry_point(self):
-        import application
-        self.assertIs(application.application, web.app)
+        from application import application
+        from werkzeug.test import Client
+
+        client = Client(application)
+        self.assertEqual(client.get("/", buffered=True).headers["Location"], "/system")
+        self.assertEqual(client.get("/system/health").json["status"], "ok")
+        self.assertIn("/test/run", client.get("/tester/openapi.json").json["paths"])
 
 
 

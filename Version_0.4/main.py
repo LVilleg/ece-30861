@@ -1,26 +1,13 @@
 import flask
 from flask import send_file
 from io import BytesIO
-import os
 from pathlib import Path
 
-from cross_team import DEFAULT_TARGETS, base_url, create_tester_blueprint
 from detection import detect_watermark_bytes
-from state import initialize
-from system_api import create_system_blueprint
 from tester_runner import get_tester_run, start_tester_run
 from watermark import SUPPORTED_EXTENSIONS, WatermarkError, watermark_bytes
 
 app = flask.Flask(__name__, static_folder="assets", static_url_path="/assets")
-state_database = Path(os.environ.get("WATERMARK_STATE_DB", Path(app.instance_path) / "watermark.sqlite3")).resolve()
-initialize(state_database)
-configured_targets = os.environ.get("POD_SYSTEM_URLS")
-app.config["TESTER_APPROVED_TARGETS"] = (
-    {base_url(url.strip()) for url in configured_targets.split(",") if url.strip()}
-    if configured_targets is not None else set(DEFAULT_TARGETS)
-)
-app.register_blueprint(create_system_blueprint(state_database), url_prefix="/system")
-app.register_blueprint(create_tester_blueprint(state_database), url_prefix="/tester")
 # Accept a full 500 MiB file plus 1 MiB for multipart form data. Keep the
 # request limit in sync with the Elastic Beanstalk nginx configuration.
 app.config["MAX_FILE_SIZE"] = 500 * 1024 * 1024
@@ -50,14 +37,15 @@ def _read_uploaded_file(upload):
     return data
 
 
+@app.get("/insert")
 @app.route("/", methods=["GET", "POST"])
 def start():
-    return flask.redirect("/insert")
+    return flask.redirect(flask.url_for("system"))
 
 
-@app.route("/insert", methods=["GET"])
-def insert():
-    return flask.render_template("insert.html")
+@app.route("/system", methods=["GET"])
+def system():
+    return flask.render_template("system.html")
 
 
 @app.route("/detection", methods=["GET", "POST"])
@@ -181,4 +169,6 @@ def download():
 
 
 if __name__ == "__main__":
-    app.run(port=8000, threaded=True)
+    import uvicorn
+
+    uvicorn.run("application:app", host="0.0.0.0", port=8000)

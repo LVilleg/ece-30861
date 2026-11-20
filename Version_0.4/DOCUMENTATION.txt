@@ -1,7 +1,7 @@
 AI WATERMARKING SERVICE - VERSION 0.4 LEGACY INTERFACE
 Setup, user guide, and developer reference
-Version 0.4 adds the image job API and the cross-team tester. See README.md
-for those interfaces. This file documents the legacy browser and CLI.
+Version 0.4 provides separate FastAPI system and cross-team tester services.
+See README.md for their URLs and startup commands. This guide covers the browser and CLI.
 
 Project folder:
 C:\Users\PNF40\.vscode\ece-30861\Version_0.4
@@ -44,8 +44,8 @@ watermarking; audio and video must be readable by FFmpeg.
 ================
 
 application.py
-    Imports the Flask app from main.py and exposes it as the WSGI object named
-    application. It does not start a server when run directly.
+    Serves the browser and the two FastAPI services through the ASGI app
+    named app. Existing WSGI servers can load application:application.
 
 main.py
     Defines the Flask app, routes, upload validation, processing calls,
@@ -71,14 +71,8 @@ tester_runner.py
     temporary progress/results, one active run per instance, and the time limit.
 
 requirements.txt
-    Lists the third-party Python dependencies:
-      Flask>=3.1             Web routes, requests, responses, and templates.
-      Pillow>=10.0           Image decoding, orientation, and saving.
-      numpy>=1.24            Pixel arrays and audio signal calculations.
-      imageio-ffmpeg>=0.6.0   Locates FFmpeg for audio/video processing.
-      reedsolo>=1.7.0,<2     Reed-Solomon encoding for the Version 0.4 survey API.
-    These entries specify supported versions. This is not
-    a complete dependency version lock.
+    Lists dependencies for both FastAPI services, their HTTP server, and the
+    Flask browser and media tools. Install it before starting either service.
 
 .platform/nginx/conf.d/client_max_body_size.conf
     Sets the Elastic Beanstalk nginx request-body limit to 501M, matching the
@@ -94,7 +88,7 @@ assets/style.css
 assets/Black and Blue Background with Wavy Lines - Pawel Czerwinski.png
     The original image used as the full-page background on every page.
 
-templates/insert.html
+templates/system.html
     Watermark-mode upload form and button to open detection mode.
 
 templates/postWatermark.html
@@ -135,7 +129,7 @@ In Windows PowerShell:
     .\.venv\Scripts\python.exe -m pip install -r requirements.txt
     .\.venv\Scripts\python.exe main.py
 
-Open http://127.0.0.1:8000/ in a browser. The root page sends you to /insert.
+Open http://127.0.0.1:8000/ in a browser. The root page sends you to /system.
 Press Ctrl+C in the terminal to stop the server.
 
 Using the virtual environment's Python directly avoids needing to activate it
@@ -146,9 +140,8 @@ imageio-ffmpeg. Its Windows wheel normally includes the executable. A different
 compatible executable can be selected with the IMAGEIO_FFMPEG_EXE environment
 variable if needed.
 
-main.py starts a threaded Flask server on port 8000. This configuration is for local
-development. application.py supplies a WSGI entry point, but the project does
-not configure a production server.
+main.py starts the combined Uvicorn server on port 8000. The Procfile starts
+the same app on Elastic Beanstalk. Each API can also run on its own host.
 
 Elastic Beanstalk upload limit:
     Both watermarking and detection accept files up to 500 MiB (524,288,000
@@ -179,7 +172,7 @@ Elastic Beanstalk upload limit:
 ====================
 
 Add a watermark:
-    1. Open /insert, labeled Watermark mode.
+    1. Open /system, labeled Watermark mode.
     2. Choose one supported file and select Add watermark.
     3. The service processes the uploaded bytes and displays postWatermark.html.
     4. Select Download to save the marked file under the uploaded filename.
@@ -204,8 +197,8 @@ watermarked download intact.
 
 Path                     Methods    Behavior
 -----------------------  ---------  -------------------------------------------
-/                        GET, POST  Redirects to /insert using HTTP 302.
-/insert                  GET        Displays the watermark upload form.
+/                        GET, POST  Redirects to /system using HTTP 302.
+/system                  GET        Displays the watermark upload form.
 /insert_submit           POST       Validates and watermarks one uploaded file.
 /download                GET        Downloads the latest marked file in memory.
 /detection               GET        Displays the detection upload form.

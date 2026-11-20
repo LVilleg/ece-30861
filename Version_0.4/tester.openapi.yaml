@@ -3,8 +3,8 @@ info:
   title: AI Media Watermarking Cross-Team Tester
   version: 0.4.0
 servers:
-  - url: http://127.0.0.1:8000/tester
-    description: Local tester base
+  - url: http://127.0.0.1:8001
+    description: Standalone local FastAPI tester
 paths:
   /test/setup:
     post:
@@ -121,3 +121,6 @@ components:
             code: {$ref: '#/components/schemas/Measure'}
             component: {$ref: '#/components/schemas/Measure'}
             system: {$ref: '#/components/schemas/Measure'}
+            model:
+              description: Same-team targets only. Counts are null when no design-to-test mapping is supplied.
+              $ref: '#/components/schemas/Measure'
