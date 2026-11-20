@@ -285,7 +285,500 @@ curl -fsS "$TESTER/test/report?session_id=$session_id" \
 python3 - "$session_id" <<'PY'
 import json, pathlib, sys
 p = pathlib.Path('cross-team-' + sys.argv[1] + '.json')
-report = json.loads(p.read_text(encoding='utf-8'))
+report = json.loads(p.read_text(encoding='utf-8'))ECE30861 / AIMARK HTTP TESTER — TERMINAL COMMAND REFERENCE
+==========================================================
+Date: 2026-11-20
+Format: UTF-8 plain text; intended for people, scripts, LLMs, and coding agents.
+Status: Command reference derived from uploaded source; live deployment NOT verified.
+
+CANONICAL DEPLOYMENT SETTINGS (USE THESE EXACT VALUES)
+------------------------------------------------------
+BASE_URL   = http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com
+SYSTEM_URL = http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/system
+TESTER_URL = http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/tester
+
+IMPORTANT: Use the exact HTTP host above. Do not replace it with an IP address,
+loopback URL, another host, or the unprefixed target for cross-team setup.
+These commands issue HTTP requests to an already deployed service; they do NOT
+start a local Python server and do NOT require checking out project source.
+Required on the client: an HTTP client (curl, curl.exe, or PowerShell).
+Optional for automatic JSON processing on Unix: python3 or jq.
+
+TWO DISTINCT TESTER WORKFLOWS
+-----------------------------
+A. WEBSITE AUTOMATIC TESTER (quick/full; server-side regression checks)
+   POST /tester/run                     Content-Type: application/x-www-form-urlencoded
+   GET  /tester?run=RUN_ID              HTML run/status page
+   GET  /tester/report/RUN_ID           JSON run/status/report record
+
+   form field: mode=quick OR mode=full; absent mode defaults to full.
+   This starts tester.py inside the deployed server via tester_runner.py.
+   Quick excludes audio/video checks; full includes them. These are tests of
+   the deployed application's code and bundled fixtures, run on its server.
+   They do NOT directly measure the result of an external HTTP black-box suite.
+
+B. CROSS-TEAM HTTP TESTER (session-based target inspection)
+   POST /tester/test/setup              Content-Type: application/json
+   POST /tester/test/run                Content-Type: application/json
+   GET  /tester/test/report?session_id=SESSION_ID
+
+   setup JSON: {"target_url":"http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/system"}
+   run JSON:   {"session_id":"SESSION_ID_FROM_SETUP"}
+   GET query:  session_id=SESSION_ID_FROM_SETUP
+   Exactly ONE suite may be started per cross-team session. To rerun, create
+   a NEW session with the setup endpoint and use its new ID.
+
+NOTE ABOUT PREFIXES
+-------------------
+The combined application routes the FastAPI system at /system and the FastAPI
+tester at /tester. Therefore the cross-team tester paths have /tester/test/...
+while the system-under-test path ends with /system. The standalone tester may
+use /test/... without a /tester prefix, but that is NOT the URL arrangement
+used here. Website POST /tester/run and cross-team POST /tester/test/run are
+DIFFERENT endpoints: do not interchange them.
+
+==========================================================================
+WINDOWS — POWERSHELL (RECOMMENDED FOR WINDOWS AUTOMATION)
+==========================================================================
+
+PS-0. Set the canonical URL once per shell session:
+
+    $Base = 'http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com'
+
+PS-1. EXAMPLE EXECUTION: launch the WEBSITE QUICK TEST, inspect response:
+
+    curl.exe -i --data-urlencode 'mode=quick' "$Base/tester/run"
+
+The --data-urlencode option supplies a form body, so curl performs POST.
+Expect HTTP 303 See Other with a Location header such as:
+
+    Location: /tester?run=RUN_ID
+
+RUN_ID here is a 32-character lowercase hexadecimal ID issued by the server.
+The sample Location line is a SHAPE, not a verified live response.
+
+To launch full mode instead (a SEPARATE run):
+
+    curl.exe -i --data-urlencode 'mode=full' "$Base/tester/run"
+
+PS-2. Complete WEBSITE QUICK TEST workflow: start, extract run ID, poll JSON:
+
+    $Base = 'http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com'
+    curl.exe -sS -D quick-headers.txt -o quick-start.html --data-urlencode 'mode=quick' "$Base/tester/run"
+    if ($LASTEXITCODE -ne 0) { throw 'Quick-test HTTP request failed.' }
+    $locationLine = (Select-String -Path quick-headers.txt -Pattern '^Location\s*:' | Select-Object -Last 1).Line
+    if ($locationLine -notmatch '[?&]run=([0-9a-f]{32})') { throw 'No tester run ID found in Location header.' }
+    $runId = $Matches[1]
+    Write-Host "Website tester run ID: $runId"
+    for ($attempt = 0; $attempt -lt 100; $attempt++) {
+        $job = Invoke-RestMethod -Method Get -Uri "$Base/tester/report/$runId"
+        if ($job.status -ne 'running') { break }
+        Start-Sleep -Seconds 2
+    }
+    $job | ConvertTo-Json -Depth 16 | Set-Content -Encoding utf8 quick-report.json
+    $job | Select-Object id, mode, status, message, exit_code
+    if ($job.status -eq 'running') { throw 'Polling stopped before the server finished.' }
+    if ($job.status -ne 'passed' -or $job.report.successful -ne $true) {
+        throw 'Quick suite did not pass. Read quick-report.json and its output field.'
+    }
+    Write-Host 'Quick tester PASSED.'
+
+Website run statuses: running | passed | failed | error.
+A successful HTTP request DOES NOT guarantee a passing test suite.
+The server may already be running a test: in that case it may return the
+currently active run ID instead of starting a second test.
+
+PS-3. EXAMPLE EXECUTION: CROSS-TEAM SETUP, TEST RUN, FETCH REPORT:
+
+    $Base = 'http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com'
+    $setupBody = @{ target_url = "$Base/system" } | ConvertTo-Json -Compress
+    $setup = Invoke-RestMethod -Method Post -Uri "$Base/tester/test/setup" -ContentType 'application/json' -Body $setupBody
+    $sessionId = $setup.session_id
+    Write-Host "Created tester session: $sessionId"
+    $runBody = @{ session_id = $sessionId } | ConvertTo-Json -Compress
+    $result = Invoke-RestMethod -Method Post -Uri "$Base/tester/test/run" -ContentType 'application/json' -Body $runBody -TimeoutSec 240
+    $result.results | Format-Table test_id, outcome, message -AutoSize
+    $stored = Invoke-RestMethod -Method Get -Uri "$Base/tester/test/report?session_id=$([uri]::EscapeDataString($sessionId))"
+    $stored | ConvertTo-Json -Depth 16 | Set-Content -Encoding utf8 cross-team-report.json
+    if (@($stored.results | Where-Object { $_.outcome -ne 'pass' }).Count -gt 0) {
+        throw 'At least one cross-team case did not pass; review cross-team-report.json.'
+    }
+    Write-Host 'All recorded cross-team cases PASSED.'
+
+Setup response is expected to be HTTP 201 with {"session_id":"..."}.
+Run normally returns HTTP 200 plus a report; HTTP 200 does NOT mean all cases
+passed. A run abort may return HTTP 500; try GET /tester/test/report with the
+same session ID to retrieve its stored partial/complete report. Do NOT re-POST
+/tester/test/run for that session.
+
+PS-4. curl.exe-only CROSS-TEAM SETUP and RUN (JSON files avoid shell quoting):
+
+    $Base = 'http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com'
+    @{ target_url = "$Base/system" } | ConvertTo-Json -Compress | Set-Content -Encoding ascii setup.json
+    curl.exe -i -H 'Content-Type: application/json' --data-binary '@setup.json' "$Base/tester/test/setup"
+    # Copy the session_id string from the JSON response; assign it below.
+    $sessionId = 'PASTE_REAL_SETUP_SESSION_ID'
+    @{ session_id = $sessionId } | ConvertTo-Json -Compress | Set-Content -Encoding ascii run.json
+    curl.exe -i --max-time 240 -H 'Content-Type: application/json' --data-binary '@run.json' "$Base/tester/test/run"
+    curl.exe -sS "$Base/tester/test/report?session_id=$sessionId" -o cross-team-report.json
+
+IMPORTANT: Use curl.exe (the actual curl executable), NOT the ambiguous
+PowerShell 'curl' alias on older Windows PowerShell releases. If you want
+PowerShell to handle JSON and session IDs automatically, use PS-3 instead.
+
+==========================================================================
+WINDOWS — COMMAND PROMPT (CMD.EXE)
+==========================================================================
+
+CMD-0. Set the canonical host (no trailing slash):
+
+    set "BASE=http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com"
+
+CMD-1. EXAMPLE EXECUTION: WEBSITE QUICK TEST:
+
+    curl.exe -i --data-urlencode "mode=quick" "%BASE%/tester/run"
+
+Locate the Location: /tester?run=... response header. Copy its RUN_ID (32 hex
+characters), then fetch a report; repeat GET while status is running:
+
+    set "RUN_ID=PASTE_REAL_32_CHARACTER_RUN_ID"
+    curl.exe -sS "%BASE%/tester/report/%RUN_ID%" -o quick-report.json
+    type quick-report.json
+
+Full website suite (starts a SEPARATE run):
+
+    curl.exe -i --data-urlencode "mode=full" "%BASE%/tester/run"
+
+CMD-2. EXAMPLE EXECUTION: CROSS-TEAM SETUP, RUN, REPORT:
+
+    set "BASE=http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com"
+    echo {"target_url":"%BASE%/system"}>setup.json
+    curl.exe -i -H "Content-Type: application/json" --data-binary "@setup.json" "%BASE%/tester/test/setup"
+    rem Copy session_id from the HTTP 201 setup JSON response:
+    set "SESSION_ID=PASTE_REAL_SETUP_SESSION_ID"
+    echo {"session_id":"%SESSION_ID%"}>run.json
+    curl.exe -i --max-time 240 -H "Content-Type: application/json" --data-binary "@run.json" "%BASE%/tester/test/run"
+    curl.exe -sS "%BASE%/tester/test/report?session_id=%SESSION_ID%" -o cross-team-report.json
+    type cross-team-report.json
+
+The SETUP response creates the ID; never invent one or reuse an ID from an
+unrelated run. Only execute RUN after successful SETUP. The report might
+contain failures even when HTTP status is 200. For automatic JSON parsing
+and error handling, prefer the PowerShell workflow above.
+
+==========================================================================
+UNIX — LINUX / macOS / BSD (BASH)
+==========================================================================
+
+SH-0. Set the canonical host:
+
+    BASE='http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com'
+
+SH-1. EXAMPLE EXECUTION: WEBSITE QUICK TEST:
+
+    curl -i --data-urlencode 'mode=quick' "$BASE/tester/run"
+
+Expect HTTP 303 with a Location of /tester?run=RUN_ID. Get the report by
+substituting the actual 32-character ID below:
+
+    RUN_ID='PASTE_REAL_32_CHARACTER_RUN_ID'
+    curl -sS "$BASE/tester/report/$RUN_ID" -o quick-report.json
+    cat quick-report.json
+
+Full website suite (starts a SEPARATE run):
+
+    curl -i --data-urlencode 'mode=full' "$BASE/tester/run"
+
+SH-2. Complete WEBSITE QUICK TEST: capture ID and poll using curl + python3:
+
+    BASE='http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com'
+    curl -sS -D quick-headers.txt -o quick-start.html --data-urlencode 'mode=quick' "$BASE/tester/run" || exit 1
+    LOCATION_LINE="$(grep -i '^Location[[:space:]]*:' quick-headers.txt | tail -n 1 | tr -d '\r')"
+    RUN_ID="${LOCATION_LINE##*run=}"
+    RUN_ID="${RUN_ID%%&*}"
+    if [[ ! "$RUN_ID" =~ ^[0-9a-fA-F]{32}$ ]]; then echo 'Run ID missing/invalid' >&2; exit 1; fi
+    printf 'Website run ID: %s\n' "$RUN_ID"
+    for attempt in {1..100}; do
+        curl -fsS "$BASE/tester/report/$RUN_ID" -o quick-report.json || exit 1
+        STATUS="$(python3 -c 'import json; print(json.load(open("quick-report.json"))["status"])')" || exit 1
+        if [[ "$STATUS" != running ]]; then break; fi
+        sleep 2
+    done
+    python3 -c 'import json,sys; r=json.load(open("quick-report.json")); print("status:",r.get("status")); print("test summary:",r.get("report")); sys.exit(0 if r.get("status")=="passed" and (r.get("report") or {}).get("successful") is True else 1)'
+
+SH-3. EXAMPLE EXECUTION: CROSS-TEAM SETUP, TEST RUN, FETCH REPORT:
+
+    BASE='http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com'
+    curl -sS -H 'Content-Type: application/json' -d "{\"target_url\":\"$BASE/system\"}" "$BASE/tester/test/setup" -o setup.json
+    SESSION_ID="$(python3 -c 'import json; print(json.load(open("setup.json"))["session_id"])')" || exit 1
+    printf 'Cross-team session: %s\n' "$SESSION_ID"
+    curl -sS --max-time 240 -H 'Content-Type: application/json' -d "{\"session_id\":\"$SESSION_ID\"}" "$BASE/tester/test/run" -o run-report.json -w 'Run HTTP status: %{http_code}\n'
+    curl -sS "$BASE/tester/test/report?session_id=$SESSION_ID" -o cross-team-report.json
+    python3 -m json.tool cross-team-report.json
+    python3 -c 'import json,sys; r=json.load(open("cross-team-report.json")); outcomes=[x.get("outcome") for x in r["results"]]; print("outcomes:",outcomes); sys.exit(0 if outcomes and all(x=="pass" for x in outcomes) else 1)'
+
+In SH-3, a setup error returns an error JSON instead of session_id; the
+python3 extraction will fail (which is correct). Inspect setup.json if so.
+Run is synchronous: it may take time before returning its result. If the
+run request times out, ask for GET /tester/test/report for the SAME ID before
+deciding what to do. Do not start a duplicate run on the same session.
+
+SH-4. POSIX-friendly one-line curl forms (manually substitute the IDs):
+
+    curl -i -X POST -H 'Content-Type: application/x-www-form-urlencoded' --data 'mode=quick' 'http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/tester/run'
+    curl -i -X POST -H 'Content-Type: application/json' --data '{"target_url":"http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/system"}' 'http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/tester/test/setup'
+    curl -i -X POST -H 'Content-Type: application/json' --data '{"session_id":"PASTE_REAL_SETUP_SESSION_ID"}' 'http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/tester/test/run'
+
+==========================================================================
+HTTP METHOD / ARGUMENT / RESPONSE CONTRACT
+==========================================================================
+
+1. POST /tester/run (website regression suite)
+   Body: form-urlencoded, mode=[quick|full]; defaults to full if missing.
+   Accepted parameter name: mode. NOT a JSON field.
+   HTTP 303: Location: /tester?run=<32-hex-character-ID>.
+   HTTP 400: invalid mode.
+   HTTP 503: unable to launch tester process.
+   Command: curl --data-urlencode 'mode=quick' BASE_URL/tester/run
+
+2. GET /tester?run=RUN_ID (website HTML status)
+   Query string: run=RUN_ID (32 hexadecimal characters).
+   HTTP 200: HTML page that displays/polls status.
+   HTTP 404: unknown ID or run record inaccessible.
+
+3. GET /tester/report/RUN_ID (website JSON status/report)
+   Path parameter: RUN_ID (32 hexadecimal characters).
+   HTTP 200: JSON run record, even when tests are still running or failed.
+   HTTP 404: unknown ID or run record inaccessible.
+   Representative keys from tester_runner.py:
+       id: string
+       mode: 'quick' | 'full'
+       status: 'running' | 'passed' | 'failed' | 'error'
+       message: human-readable text
+       started_at: Unix timestamp number
+       completed_at: Unix timestamp number (on completion)
+       exit_code: integer (when tester process reached an exit status)
+       output: last approximately 32,000 bytes of test process output
+       report: null while running, else test-result object when available
+   Report object (when available) includes:
+       mode, completed_at_utc, project_directory, successful, tests_run,
+       failures, errors, skipped, elapsed_seconds, failure_details.
+   Success criterion: status == 'passed' AND report.successful == true.
+   Time constraint: worker imposes a 180-second deadline; poll with a bound.
+
+4. POST /tester/test/setup (cross-team)
+   Content-Type: application/json
+   Required JSON: {"target_url": "BASE_URL/system"}
+   target_url: full approved HTTP/HTTPS system base URL as a JSON string;
+               for THIS deployment use EXACT SYSTEM_URL listed at top.
+   HTTP 201: {"session_id":"..."}; store this ID.
+   HTTP 400: malformed JSON, invalid URL, etc.
+   HTTP 403: target_url is not in tester's approved target list.
+   Other 4xx/5xx: target setup failure or communication error.
+   Note: the tester invokes POST SYSTEM_URL/test/setup internally and assigns
+   the session ID. The client does not need to call that system endpoint.
+
+5. POST /tester/test/run (cross-team)
+   Content-Type: application/json
+   Required JSON: {"session_id": "ID_FROM_SETUP"}
+   session_id: nonempty string, taken verbatim from successful setup.
+   HTTP 200: full cross-team JSON report (not necessarily all passes).
+   HTTP 400: missing/empty session_id.
+   HTTP 404: nonexistent session_id.
+   HTTP 409: session has already started its suite; cannot run twice.
+   HTTP 500: aborted suite; retrieve report with the same session ID.
+   Important: This is a synchronous operation and may require a long timeout.
+
+6. GET /tester/test/report?session_id=SESSION_ID (cross-team)
+   Required query parameter: one nonempty session_id (URL-encode if needed).
+   HTTP 200: stored JSON report; does not rerun any tests.
+   HTTP 400: invalid/missing/duplicated session_id query parameter.
+   HTTP 404: no such session.
+   HTTP 409: suite has not ended.
+   JSON report shape:
+       {
+         "session_id": "...",
+         "target_url": "http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/system",
+         "results": [
+           {"test_id":"T-01", "outcome":"pass", "message":"..."}
+         ],
+         "coverage": {
+           "code":{"covered":null,"total":null,"basis":"..."},
+           "component":{"covered":null,"total":null,"basis":"..."},
+           "system":{"covered":null,"total":null,"basis":"..."}
+         }
+       }
+   Results[].outcome is pass | fail | error | skip; error results can have
+   source of tester | system | communication | unknown.
+   Values above are a SCHEMA ILLUSTRATION, not actual execution results.
+   Unavailable coverage measurements may be null; null does not mean zero.
+   Same-team tests may also include coverage.model.
+   Success criterion: every expected result has outcome == 'pass'.
+
+7. OPTIONAL: GET /system/health (independent system health probe)
+
+    curl -i 'http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/system/health'
+
+   Expected JSON on a healthy service: {"status":"ok"}.
+   This is a health check, not a test-suite execution.
+
+8. OPTIONAL: API schema links, if available in deployed application
+
+    http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/tester/openapi.json
+    http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/tester/docs
+    http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/system/openapi.json
+    http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/system/docs
+
+The exact current remote deployment and its hostname resolution were not
+verified while preparing this guide. The above API arrangement is based on
+the uploaded source files and README, not a confirmed live smoke test.
+
+==========================================================================
+WHAT THE CROSS-TEAM SUITE CHECKS
+==========================================================================
+
+The uploaded cross_team_cases.py defines eight ordered checks:
+    T-01: system health
+    T-02: PNG watermark/detection round-trip
+    T-03: JPEG watermark/detection round-trip
+    T-04: independent job IDs and job result isolation
+    T-05: clean PNG/JPEG detection stays negative
+    T-06: malformed requests return appropriate errors
+    T-07: unsupported GIF uploads return HTTP 415
+    T-08: nonexistent job behavior
+
+The system's survey upload API uses multipart/form-data with:
+    file: exactly one real PNG or JPEG image (100,000,000-byte file cap)
+    ai_status: exactly one 'generated', 'edited', or 'both'
+    ai_tools: 1 to 4 DISTINCT values chosen from:
+              unknown, openai, midjourney, stable_diffusion,
+              flux, firefly, google, other
+This differs from older README language that calls an optional field
+'payload'. The executable system_api.py requires ai_status and ai_tools.
+The cross-team suite sends these multipart requests automatically.
+
+Optional manual system API example (requires an existing valid sample.png):
+
+    curl -i -F 'file=@sample.png' -F 'ai_status=generated' -F 'ai_tools=openai' 'http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/system/watermark-jobs'
+
+The system replies HTTP 202 with a job ID; poll /system/watermark-jobs/JOB_ID.
+A later completed job can be retrieved from /system/watermark-jobs/JOB_ID/result.
+To detect an existing image's mark:
+
+    curl -i -F 'file=@sample.png' 'http://aimark-env.eba-vhpawqa3.us-east-2.elasticbeanstalk.com/system/detect'
+
+These are OPTIONAL manual API examples, NOT substitutes for /tester/test/run.
+
+==========================================================================
+HTTP REQUEST CONSTRUCTION CHEAT SHEET
+==========================================================================
+
+    curl -i            = include HTTP response headers in terminal output.
+    curl -sS           = quiet progress meter; still show failures.
+    curl -D FILE       = write response headers to FILE.
+    curl -o FILE       = write response body to FILE.
+    curl -L            = follow redirects; avoid when extracting Location ID.
+    curl --data STRING = send an HTTP POST form/raw body (depending on headers).
+    curl --data-urlencode 'mode=quick' = send URL-encoded form field.
+    curl -H 'Content-Type: application/json' = specify JSON request type.
+    curl --data-binary '@setup.json' = send exact contents of setup.json.
+    curl -F 'file=@sample.png' = multipart file upload.
+    curl --max-time 240 = limit total request duration to 240 seconds.
+    curl -w 'HTTP %{http_code}\n' = print HTTP response status after request.
+    curl.exe = explicit native curl executable on Windows.
+    Invoke-RestMethod = PowerShell HTTP client; automatically parses JSON.
+    ConvertTo-Json = PowerShell object -> JSON text.
+    ConvertFrom-Json = JSON text -> PowerShell object.
+
+The examples do not require an authentication token because none is specified
+for these routes by the supplied code. Do not assume that other gateways or
+future deployment configuration cannot add access control.
+
+==========================================================================
+COMMON FAILURES AND SAFE AGENT BEHAVIOR
+==========================================================================
+
+- URL rejected with HTTP 403 during cross-team setup:
+  The target is not approved on the TESTER SERVER. The server's
+  POD_SYSTEM_URLS configuration needs to include EXACT SYSTEM_URL, with
+  /system included; if it is a self-test, OWN_SYSTEM_URLS may also include it.
+  Changing an environment variable only in the client terminal does NOT alter
+  the already running Elastic Beanstalk server configuration.
+
+- HTTP 303 after website POST /tester/run:
+  Correct: this is a REDIRECT, not a failure. Read Location for run=RUN_ID.
+
+- Website report shows status=running:
+  Poll GET /tester/report/RUN_ID again after about two seconds. Do not
+  repeatedly POST /tester/run just to get updates.
+
+- Website report 404:
+  The server may have restarted, erased temporary state, or routed your GET
+  to a different server instance. Website records are temporary and not
+  necessarily shared between Elastic Beanstalk instances.
+
+- Website report status=failed or error:
+  Inspect output, message, exit_code, report.failures, report.errors and
+  report.failure_details. HTTP 200 on the report means retrieval succeeded.
+
+- Cross-team HTTP 409 on POST /tester/test/run:
+  The same session already started. GET its report, or make a NEW setup
+  session when an entirely new run is intended.
+
+- Cross-team HTTP 409 on GET /tester/test/report:
+  Suite has not finished. Poll later; do not assume the previous POST failed.
+
+- Cross-team HTTP 500 on POST /tester/test/run:
+  Check GET report with the SAME session ID. The implementation persists a
+  report even when a suite aborts; some cases may be marked skip.
+
+- Transport timeout, HTTP proxy error, or a DNS failure:
+  Not a test pass and not necessarily a test failure. Preserve diagnostics,
+  check network/deployment reachability, and DO NOT invent run IDs, session
+  IDs, test results, or successful HTTP status codes.
+
+- Never claim an example schema snippet is actual remote execution output.
+  The commands here have been inspected against uploaded source, but no live
+  remote endpoint response was successfully obtained for this document.
+
+AGENT EXECUTION RULES (MACHINE-READABLE INTENT)
+----------------------------------------------
+1. BASE_URL must equal the value specified at the top of this document.
+2. Choose workflow A (website quick/full) OR workflow B (cross-team HTTP).
+3. Workflow A: POST form 'mode=quick'; parse the Location run= ID; poll GET
+   /tester/report/ID; require status='passed' and report.successful=true.
+4. Workflow B: POST JSON target_url=BASE_URL+'/system'; require HTTP 201;
+   extract session_id; POST JSON session_id to /tester/test/run once; fetch
+   the stored report by GET; inspect each results[].outcome.
+5. Do not confuse web run ID (32 hex chars) with cross-team session ID (UUID).
+6. Never make up IDs, hostnames, responses, or test outcomes.
+7. Treat a successful HTTP transaction and a passing test suite separately.
+8. Do not send JSON where the website form endpoint expects form data.
+9. Preserve source error JSON and HTTP code when requests fail.
+10. Do not retry POST /tester/test/run against a used session; setup anew.
+11. Do not replace the specified hostname with any IP address or loopback.
+12. Label example output as illustrative unless observed live.
+
+SOURCE FILES USED
+-----------------
+- application.py          : combined routing/mount prefixes
+- main.py                 : website tester form and report routes
+- tester_runner.py        : run lifecycle, status, process timeout
+- tester.py               : quick/full test selection and report fields
+- cross_team.py           : session setup, run-once, report behavior
+- cross_team_cases.py     : cross-team test cases
+- tester.openapi.yaml     : cross-team request/response contract
+- system_api.py           : system image uploads, statuses, session hooks
+- README.md               : combined-host deployment and approved targets
+- DOCUMENTATION.txt       : legacy browser tester overview
+
+Version caveat: application.py imports FastAPI service packages which are
+referenced in README.md but were not among the supplied uploaded files. The
+routes above are consistent with the combined router, Flask implementation,
+cross-team implementation and OpenAPI document; live deployed compatibility
+must be checked against the actual running version.
+
+END OF GUIDE
 for r in report['results']:
     print(r['test_id'], r['outcome'], r.get('message', ''))
 bad = [r for r in report['results'] if r['outcome'] != 'pass']
